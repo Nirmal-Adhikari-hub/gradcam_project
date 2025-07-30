@@ -1,0 +1,16 @@
+name: gradcam
+channels:
+  - pytorch
+  - conda-forge
+dependencies:
+  - python=3.10
+  - cudatoolkit=11.6
+  - pytorch>=1.12
+  - torchvision
+  - numpy
+  - matplotlib
+  - opencv
+  - pip
+  - pip:
+      - grad-cam       # Jacob Gil's library
+      - other-pip-deps-from-both-repos
