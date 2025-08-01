@@ -311,7 +311,7 @@ def slowfast50(slowfast_config='SLOWFAST_8x8_R50.yaml', slowfast_args=[], load_p
     return model
 
 def slowfast101(slowfast_config='SLOWFAST_64x2_R101_50_50.yaml', slowfast_args=[], load_pkl=True, multi=False):
-    cfg = yaml.load(open('/home/nirmal/SlowFast/gradcam_project/slowfast/slowfast_modules/configs/' + slowfast_config, 'r'), Loader=yaml.FullLoader)
+    cfg = yaml.load(open('./slowfast/slowfast_modules/configs/' + slowfast_config, 'r'), Loader=yaml.FullLoader)
     cfg = CfgNode(cfg)
     if len(slowfast_args) > 0:
         cfg.merge_from_list(slowfast_args)
