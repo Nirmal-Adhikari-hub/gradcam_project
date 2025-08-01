@@ -88,16 +88,17 @@ def evaluate_single_sample(model, feeder, args, out_dir: str):
     wer = wer_calculation(gt_path=filtered_stm, primary_pred=filtered_ctm)
     return wer, decoded, info
 
-
-def main(mode: str, index: int):
+def parse_args():
     # Parse arguments
     sparser = utils.get_parser()
     sparser.add_argument('--mode', type=str, default='test',
                         help='Dataset split to use (train/dev/test)')
     sparser.add_argument('--index', type=int, default=0,
                         help='Index of the sample in the feeder to evaluate')
+    sparser.add_argument('--verbose', action='store_true',
+                        help='Print progress messages')
     sparser.add_argument('--slowfast_ckpt', type=str,
-                        default='/home/nirmal/SlowFast/GradCAMs/checkpoints/slow_fast_phoenix2014_dev_18.01_test_18.28.pt')
+                        default='/shared/home/xvoice/nirmal/gradcam/checkpoints/slow_fast_phoenix2014_dev_18.01_test_18.28.pt')
     p = sparser.parse_args()
 
     # p.config = "baseline_iter.yaml"
@@ -116,6 +117,12 @@ def main(mode: str, index: int):
     args = sparser.parse_args()
     with open(f"./slowfast/configs/{args.dataset}.yaml", 'r') as f:
         args.dataset_info = yaml.load(f, Loader=yaml.FullLoader)
+    return args
+
+
+
+def main(mode: str, index: int):
+    args = parse_args()
 
     gloss_dict = np.load(args.dataset_info['dict_path'], allow_pickle=True).item()
 
