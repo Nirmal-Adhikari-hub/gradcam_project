@@ -77,11 +77,19 @@ def reshape_transform(tensor):
         b, c = tensor.size()
         return tensor.reshape(b, c, 1, 1)
     else:
-        # For final logits or flattened features
+        # Fallback: flatten and pad as needed
         if tensor.dim() == 2:
-            # [B, C] → [B, C, 1, 1] → [B, 1, 1] for CAM
-            tensor = tensor.unsqueeze(-1).unsqueeze(-1)  # [B, C, 1, 1]
+            # [B, C] → [B, C, 1, 1]
+            tensor = tensor.unsqueeze(-1).unsqueeze(-1)
+        elif tensor.dim() == 1:
+            tensor = tensor.unsqueeze(0).unsqueeze(-1).unsqueeze(-1)  # [C] → [1, C, 1, 1]
+        
+        # Ensure final shape is always [B, C, H, W] with H=W=1
+        if tensor.dim() != 4:
+            raise ValueError(f"[Reshape] Unexpected tensor shape {tensor.shape}, can't make CAM")
+
         return tensor
+
 
 
 
