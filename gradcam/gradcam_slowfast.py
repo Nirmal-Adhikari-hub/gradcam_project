@@ -8,6 +8,8 @@ from pathlib import Path
 import torch.nn as nn
 import pytorch_grad_cam.utils.image as _cam_image_utils
 
+
+import pytorch_grad_cam.utils.image as _cam_image_utils
 _original_scale = _cam_image_utils.scale_cam_image
 
 def _safe_scale_cam_image(cam: np.ndarray, target_size):
@@ -19,7 +21,12 @@ def _safe_scale_cam_image(cam: np.ndarray, target_size):
         cam = cam[np.newaxis, :]
     return _original_scale(cam, target_size)
 
+
 _cam_image_utils.scale_cam_image = _safe_scale_cam_image
+
+# **also** rebind it inside base_cam, where GradCAM actually calls it
+import pytorch_grad_cam.base_cam as _base_cam
+_base_cam.scale_cam_image = _safe_scale_cam_image
 
 # Ensure project root on PYTHONPATH so we can import the setup files
 import sys
