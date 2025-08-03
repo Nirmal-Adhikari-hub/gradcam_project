@@ -1,4 +1,4 @@
-python gradcam_perlayer_slowfast.py \
+python -m gradcam.gradcam_perlayer_slowfast \
     --config ./slowfast/configs/baseline.yaml \
     --mode test \
     --index 0 \
