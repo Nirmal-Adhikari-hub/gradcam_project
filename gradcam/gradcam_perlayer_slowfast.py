@@ -95,12 +95,25 @@ def main():
 
     # wrapper so Grad-CAM sees logits ----------------------------------------
     class CAMWrapper(nn.Module):
-        def __init__(s,m,lx): super().__init__(); s.m=m; s.lx=lx
-        def forward(s,x):
-            out = s.m(x, s.lx.repeat(x.size(0)))
-            seq  = out['sequence_logits'][0]            # [T,B,C] or [B,C]
-            if seq.dim()==3: score = seq.permute(1,0,2).mean(1)
-            else:            score = seq.mean(0,keepdim=True)
+        def __init__(self, slr_model, sample_len_x):
+            super().__init__()
+            self.model = slr_model
+            self.sample_len_x = sample_len_x
+
+        def forward(self, x):
+            B = x.size(0)
+            len_x_batch = self.sample_len_x.repeat(B)
+            was_training = self.model.training
+            self.model.train()
+            with torch.set_grad_enabled(True):
+                out = self.model(x, len_x_batch)
+                seq_logits = out['sequence_logits'][0]
+                if seq_logits.dim() == 3:
+                    seq_logits = seq_logits.permute(1, 0, 2)
+                    score = seq_logits.mean(dim=1)
+                else:
+                    score = seq_logits.mean(dim=0).unsqueeze(0)
+            self.model.train(was_training)
             return score
     cam_model = CAMWrapper(model, len_x.to(device)).to(device)
 
