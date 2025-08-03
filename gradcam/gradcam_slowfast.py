@@ -62,6 +62,9 @@ def reshape_transform(tensor):
       - 3D: [B,C,T]     -> [B*T, C, 1, 1]
       - 2D: [B,C]       -> [B,   C, 1, 1]
     """
+    # ↓ If the module returned (output, hidden), grab the real tensor:
+    if isinstance(tensor, tuple):
+        tensor = tensor[0]
     print(f"[Reshape] Transforming tensor shape \
         {tensor.shape}") if tensor is not None and type(tensor) is torch.Tensor else None
     dims = tensor.dim()
