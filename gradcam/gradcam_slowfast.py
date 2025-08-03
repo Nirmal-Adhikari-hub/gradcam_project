@@ -77,8 +77,12 @@ def reshape_transform(tensor):
         b, c = tensor.size()
         return tensor.reshape(b, c, 1, 1)
     else:
-        flat = tensor.reshape(tensor.size(0), -1)
-        return flat.unsqueeze(-1).unsqueeze(-1)
+        # For final logits or flattened features
+        if tensor.dim() == 2:
+            # [B, C] → [B, C, 1, 1] → [B, 1, 1] for CAM
+            tensor = tensor.unsqueeze(-1).unsqueeze(-1)  # [B, C, 1, 1]
+        return tensor
+
 
 
 
