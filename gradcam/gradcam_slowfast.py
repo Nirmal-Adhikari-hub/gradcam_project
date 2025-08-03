@@ -109,16 +109,30 @@ def main():
         def __init__(self, slr_model, sample_len_x):
             super().__init__()
             self.model = slr_model
-            # We will expand len_x along the batch dimension inside the forward
             self.sample_len_x = sample_len_x
 
         def forward(self, x):
-            # x: [B, T, C, H, W] - as originally collated
             B = x.size(0)
             len_x_batch = self.sample_len_x.repeat(B)
             out = self.model(x, len_x_batch)
-            # CAM needs raw logits shape [B, n_classes]
-            return out['logits']  # adjust key if required
+
+            # Debug: see what keys we actually have
+            if 'logits' not in out:
+                print("⚠️  Available keys:", list(out.keys()))
+
+            # Option A: take the first stream's sequence_logits at time 0
+            seq0 = out['sequence_logits'][0]      # shape: [T, num_classes]
+            # shape is [T, C] because B=1, or [T, B, C] if batched
+            if seq0.dim() == 3:                  # (T, B, C)
+                seq0 = seq0.permute(1, 0, 2)      # (B, T, C)
+                # pick time=0
+                scores = seq0[:, 0, :]           # (B, C)
+            else:                                # (T, C)
+                seq0 = seq0.unsqueeze(0)         # (1, T, C)
+                scores = seq0[:, 0, :]           # (1, C)
+
+            return scores
+
         
     cam_model = CAMWrapper(model, len_x.to(device)).to(device)
 
