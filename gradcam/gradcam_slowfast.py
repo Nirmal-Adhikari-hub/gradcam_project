@@ -113,22 +113,26 @@ def main():
             self.sample_len_x = sample_len_x
 
         def forward(self, x):
-            # x: [B, T, C, H, W] - as originally collated
             B = x.size(0)
             len_x_batch = self.sample_len_x.repeat(B)
-            out = self.model(x, len_x_batch)
-            # fallback: use temporal mean of sequence_logits[0]
-            seq_logits = out['sequence_logits'][0]  # shape: [T, C] or [T, B, C]
 
-            if seq_logits.dim() == 3:
-                # [T, B, C] → [B, T, C]
-                seq_logits = seq_logits.permute(1, 0, 2)
-                score = seq_logits.mean(dim=1)  # [B, C]
-            else:
-                # [T, C] → mean over T → [C] → add batch dim
-                score = seq_logits.mean(dim=0).unsqueeze(0)  # [1, C]
+            # 🔧 Save current training mode (True/False)
+            was_training = self.model.training
+            self.model.train()  # ✅ Force training mode so RNN backward works
 
+            with torch.set_grad_enabled(True):
+                out = self.model(x, len_x_batch)
+                seq_logits = out['sequence_logits'][0]  # [T, C] or [T, B, C]
+
+                if seq_logits.dim() == 3:
+                    seq_logits = seq_logits.permute(1, 0, 2)  # [T, B, C] → [B, T, C]
+                    score = seq_logits.mean(dim=1)            # [B, C]
+                else:
+                    score = seq_logits.mean(dim=0).unsqueeze(0)  # [C] → [1, C]
+
+            self.model.train(was_training)  # 🔄 Restore original training/eval mode
             return score
+
 
         
     cam_model = CAMWrapper(model, len_x.to(device)).to(device)
