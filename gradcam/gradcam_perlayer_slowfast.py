@@ -21,7 +21,7 @@ from torch.nn.utils.rnn import PackedSequence
 import pytorch_grad_cam.utils.image     as _cam_utils
 import pytorch_grad_cam.base_cam        as _base_cam
 _original_scale = _cam_utils.scale_cam_image
-def _safe_scale(cam: np.ndarray, target_size):
+def _safe_scale(cam: np.ndarray, target_size=None):
     if cam.ndim == 3: cam = cam.mean(0)
     if cam.ndim == 1: cam = cam[None, :]
     if isinstance(target_size, (list, tuple)) and len(target_size) >= 2:
