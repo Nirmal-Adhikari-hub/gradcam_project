@@ -1,2 +1,9 @@
 data/
 gradcam/__pycache__/
+slowfast/__pycache__/
+gradcam_project/__pycache__/
+gradcam_project/gradcam/__pycache__/
+gradcam_project/slowfast/__pycache__/
+slowfast/slowfast_modules/__pycache__/
+
+*__pycache__*

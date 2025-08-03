@@ -56,11 +56,18 @@ def load_frames_from_info(info_str, args, verbose=False):
 
 
 def reshape_transform(tensor):
-    """
-    Adapt 5D conv activations [B,C,T,H,W] -> [B*T, C, H, W]
-    """
-    b, c, t, h, w = tensor.size()
-    return tensor.permute(0, 2, 1, 3, 4).reshape(b * t, c, h, w)
+    dims = tensor.dim()
+    if dims == 5:
+        b, c, t, h, w = tensor.size()
+        return tensor.permute(0, 2, 1, 3, 4).reshape(b * t, c, h, w)
+    elif dims == 3:  # e.g. [B, C, T] from your conv1d
+        b, c, t = tensor.size()
+        # treat T as “height” and emulate a single-pixel width
+        return tensor.permute(0, 2, 1).reshape(b * t, c, 1, 1)
+    else:
+        # fallback: just flatten batch
+        return tensor.reshape(tensor.size(0), -1)
+
 
 
 def main():
