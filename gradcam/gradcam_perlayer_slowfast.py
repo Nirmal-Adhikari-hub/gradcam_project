@@ -132,7 +132,8 @@ def main():
     print(f"\nTop-1 predicted gloss:  {top_id}  ({top_txt})\n")
 
     out_root = Path("./slowfast/work_dir/gradcam_per_layer")
-    b, _, T, _, _ = inp.shape  #   B, C, T, H, W  (SlowFast input order)
+    # b, _, T, _, _ = inp.shape  #   B, C, T, H, W  (SlowFast input order)
+    b = inp.shape[0]           # batch (almost always 1 for video-vis tasks)
 
     # loop over layers --------------------------------------------------------
     for name, layer in layers:
@@ -145,7 +146,10 @@ def main():
         gray = cam(input_tensor=inp,
                    targets=[ClassifierOutputTarget(top_id)],
                    eigen_smooth=True, aug_smooth=False)          # [B*T,H,W]
-        Hl, Wl = gray.shape[-2:]                       # layer CAM resolution
+        Hl, Wl           = gray.shape[-2:]             # CAM height / width
+        BT               = gray.shape[0]               # B × T  frames
+        T                = BT // b                     # recover #frames
+        cams             = gray.reshape(b, T, Hl, Wl)  # (B, T, Hl, Wl)
 
         cams = gray.reshape(b, T, Hl, Wl)                          # back to [B,T]
         save_dir = out_root / name
