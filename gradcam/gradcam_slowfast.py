@@ -57,12 +57,28 @@ def load_frames_from_info(info_str, args, verbose=False):
 
 def reshape_transform(tensor):
     """
-    Adapt 5D conv activations [B,C,T,H,W] -> [B*T, C, H, W]
+    Adapt activations of varying dims to [B*? , C, H, W]:
+      - 5D: [B,C,T,H,W] -> [B*T, C, H, W]
+      - 3D: [B,C,T]     -> [B*T, C, 1, 1]
+      - 2D: [B,C]       -> [B,   C, 1, 1]
     """
     print(f"[Reshape] Transforming tensor shape \
-          {tensor.shape}") if tensor is not None else None
-    b, c, t, h, w = tensor.size()
-    return tensor.permute(0, 2, 1, 3, 4).reshape(b * t, c, h, w)
+        {tensor.shape}") if tensor is not None else None
+    dims = tensor.dim()
+    if dims == 5:
+        b, c, t, h, w = tensor.size()
+        return tensor.permute(0, 2, 1, 3, 4).reshape(b * t, c, h, w)
+    elif dims == 3:
+        b, c, t = tensor.size()
+        # treat time as spatial dim, 1x1
+        return tensor.permute(0, 2, 1).reshape(b * t, c, 1, 1)
+    elif dims == 2:
+        b, c = tensor.size()
+        return tensor.reshape(b, c, 1, 1)
+    else:
+        # fallback: flatten batch, leave channel dim
+        flat = tensor.reshape(tensor.size(0), -1)
+        return flat.unsqueeze(-1).unsqueeze(-1)
 
 
 def main():
