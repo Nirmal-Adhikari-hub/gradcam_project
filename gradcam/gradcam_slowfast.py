@@ -128,43 +128,6 @@ def main():
     if verbose: print(f"[Main] Collating sample index {args.index} (split={args.mode})")
     data, len_x, _, _, info = feeder.collate_fn([feeder[args.index]])
 
-    # --- add after you load the model (just before you create the RNN wrapper) ----
-    import types, torch.nn.utils.rnn as rnn_utils
-
-    def _bilstm_forward_patched(self, src_feats, src_lens, hidden=None):
-        """
-        Drop-in replacement for BiLSTMLayer.forward that copes with an RNN
-        returning *either* (packed_outputs, hidden)  **or**  packed_outputs.
-        """
-        packed = rnn_utils.pack_padded_sequence(src_feats, src_lens)
-
-        result = self.rnn(packed, hidden)        # may be tuple or tensor
-
-        # ------------------------------------------------------------------
-        # Normal run (tuple)          ‖  Wrapped run (PackedSequence only)
-        # ------------------------------------------------------------------
-        if isinstance(result, tuple):
-            packed_outputs, hidden = result
-        else:
-            packed_outputs, hidden = result, None          # nothing to unpack
-
-        # back to padded - torch.Tensor  → grads can flow & Grad-CAM can hook
-        rnn_out, _ = rnn_utils.pad_packed_sequence(packed_outputs)   # [T,B,C]
-
-        # keep the rest of the original bookkeeping -----------------------
-        if self.bidirectional and hidden is not None:
-            hidden = self._cat_directions(hidden)
-
-        if isinstance(hidden, tuple):
-            hidden = torch.cat(hidden, 0)
-
-        return {"predictions": rnn_out, "hidden": hidden}
-
-    # monkey-patch the very first BiLSTM layer only ------------------------
-    model.temporal_model[0].forward = types.MethodType(
-        _bilstm_forward_patched, model.temporal_model[0]
-    )
-
 
     # Wrap the model so CAM can call it with a single input
     class CAMWrapper(nn.Module):
@@ -210,6 +173,44 @@ def main():
     wrapped_rnn = RNNOutputOnly(model.temporal_model[0].rnn)
     model.temporal_model[0].rnn = wrapped_rnn
     # ────────────────────────────────────────────────────────────────────────
+
+    # --- add after you load the model (just before you create the RNN wrapper) ----
+    import types, torch.nn.utils.rnn as rnn_utils
+
+    def _bilstm_forward_patched(self, src_feats, src_lens, hidden=None):
+        """
+        Drop-in replacement for BiLSTMLayer.forward that copes with an RNN
+        returning *either* (packed_outputs, hidden)  **or**  packed_outputs.
+        """
+        packed = rnn_utils.pack_padded_sequence(src_feats, src_lens)
+
+        result = self.rnn(packed, hidden)        # may be tuple or tensor
+
+        # ------------------------------------------------------------------
+        # Normal run (tuple)          ‖  Wrapped run (PackedSequence only)
+        # ------------------------------------------------------------------
+        if isinstance(result, tuple):
+            packed_outputs, hidden = result
+        else:
+            packed_outputs, hidden = result, None          # nothing to unpack
+
+        # back to padded - torch.Tensor  → grads can flow & Grad-CAM can hook
+        rnn_out, _ = rnn_utils.pad_packed_sequence(packed_outputs)   # [T,B,C]
+
+        # keep the rest of the original bookkeeping -----------------------
+        if self.bidirectional and hidden is not None:
+            hidden = self._cat_directions(hidden)
+
+        if isinstance(hidden, tuple):
+            hidden = torch.cat(hidden, 0)
+
+        return {"predictions": rnn_out, "hidden": hidden}
+
+    # monkey-patch the very first BiLSTM layer only ------------------------
+    model.temporal_model[0].forward = types.MethodType(
+        _bilstm_forward_patched, model.temporal_model[0]
+    )
+
 
 
     # 4) define the layers for viz
