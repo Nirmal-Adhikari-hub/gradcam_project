@@ -63,7 +63,7 @@ def reshape_transform(tensor):
       - 2D: [B,C]       -> [B,   C, 1, 1]
     """
     print(f"[Reshape] Transforming tensor shape \
-        {tensor.shape}") if tensor is not None else None
+        {tensor.shape}") if tensor is not None and type(tensor) is torch.Tensor else None
     dims = tensor.dim()
     if dims == 5:
         b, c, t, h, w = tensor.size()
