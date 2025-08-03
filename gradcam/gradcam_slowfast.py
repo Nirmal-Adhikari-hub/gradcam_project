@@ -161,8 +161,8 @@ def main():
             super().__init__()
             self.rnn = rnn
         def forward(self, x, hx=None):
-            output, _ = self.rnn(x, hx)   # drop the hidden‐state tuple
-            return output             # now a pure Tensor
+            output, hidden = self.rnn(x, hx)   # drop the hidden‐state tuple
+            return output, hidden             # now a pure Tensor
 
     # Replace the raw LSTM in model.temporal_model[0] with our wrapper
     wrapped_rnn = RNNOutputOnly(model.temporal_model[0].rnn)
