@@ -59,6 +59,8 @@ def reshape_transform(tensor):
     """
     Adapt 5D conv activations [B,C,T,H,W] -> [B*T, C, H, W]
     """
+    print(f"[Reshape] Transforming tensor shape \
+          {tensor.shape}") if tensor is not None else None
     b, c, t, h, w = tensor.size()
     return tensor.permute(0, 2, 1, 3, 4).reshape(b * t, c, h, w)
 
