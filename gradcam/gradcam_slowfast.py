@@ -162,12 +162,12 @@ def main():
             super().__init__()
             self.rnn = rnn
         def forward(self, x, hx=None):
-            packed_out, _ = self.rnn(x, hx)           # original LSTM output
+            packed_out, hidden = self.rnn(x, hx)           # original LSTM output
             # convert to *padded* tensor so Grad-CAM sees a real Tensor
             # padded, _ = torch.nn.utils.rnn.pad_packed_sequence(
             #     packed_out, batch_first=False
             # )                                         # [T,B,C]
-            return packed_out
+            return packed_out, hidden
 
     # Replace the raw LSTM in model.temporal_model[0] with our wrapper
     wrapped_rnn = RNNOutputOnly(model.temporal_model[0].rnn)
@@ -177,39 +177,39 @@ def main():
     # --- add after you load the model (just before you create the RNN wrapper) ----
     import types, torch.nn.utils.rnn as rnn_utils
 
-    def _bilstm_forward_patched(self, src_feats, src_lens, hidden=None):
-        """
-        Drop-in replacement for BiLSTMLayer.forward that copes with an RNN
-        returning *either* (packed_outputs, hidden)  **or**  packed_outputs.
-        """
-        packed = rnn_utils.pack_padded_sequence(src_feats, src_lens)
+    # def _bilstm_forward_patched(self, src_feats, src_lens, hidden=None):
+    #     """
+    #     Drop-in replacement for BiLSTMLayer.forward that copes with an RNN
+    #     returning *either* (packed_outputs, hidden)  **or**  packed_outputs.
+    #     """
+    #     packed = rnn_utils.pack_padded_sequence(src_feats, src_lens)
 
-        result = self.rnn(packed, hidden)        # may be tuple or tensor
+    #     result = self.rnn(packed, hidden)        # may be tuple or tensor
 
-        # ------------------------------------------------------------------
-        # Normal run (tuple)          ‖  Wrapped run (PackedSequence only)
-        # ------------------------------------------------------------------
-        if isinstance(result, tuple):
-            packed_outputs, hidden = result
-        else:
-            packed_outputs, hidden = result, None          # nothing to unpack
+    #     # ------------------------------------------------------------------
+    #     # Normal run (tuple)          ‖  Wrapped run (PackedSequence only)
+    #     # ------------------------------------------------------------------
+    #     if isinstance(result, tuple):
+    #         packed_outputs, hidden = result
+    #     else:
+    #         packed_outputs, hidden = result, None          # nothing to unpack
 
-        # back to padded - torch.Tensor  → grads can flow & Grad-CAM can hook
-        rnn_out, _ = rnn_utils.pad_packed_sequence(packed_outputs)   # [T,B,C]
+    #     # back to padded - torch.Tensor  → grads can flow & Grad-CAM can hook
+    #     rnn_out, _ = rnn_utils.pad_packed_sequence(packed_outputs)   # [T,B,C]
 
-        # keep the rest of the original bookkeeping -----------------------
-        if self.bidirectional and hidden is not None:
-            hidden = self._cat_directions(hidden)
+    #     # keep the rest of the original bookkeeping -----------------------
+    #     if self.bidirectional and hidden is not None:
+    #         hidden = self._cat_directions(hidden)
 
-        if isinstance(hidden, tuple):
-            hidden = torch.cat(hidden, 0)
+    #     if isinstance(hidden, tuple):
+    #         hidden = torch.cat(hidden, 0)
 
-        return {"predictions": rnn_out, "hidden": hidden}
+    #     return {"predictions": rnn_out, "hidden": hidden}
 
-    # monkey-patch the very first BiLSTM layer only ------------------------
-    model.temporal_model[0].forward = types.MethodType(
-        _bilstm_forward_patched, model.temporal_model[0]
-    )
+    # # monkey-patch the very first BiLSTM layer only ------------------------
+    # model.temporal_model[0].forward = types.MethodType(
+    #     _bilstm_forward_patched, model.temporal_model[0]
+    # )
 
 
 
