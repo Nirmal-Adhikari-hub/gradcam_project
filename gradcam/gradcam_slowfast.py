@@ -77,18 +77,22 @@ def reshape_transform(tensor):
         b, c = tensor.size()
         return tensor.reshape(b, c, 1, 1)
     else:
-        # Fallback: flatten and pad as needed
+        # Ensure shape is always [B, C, 1, 1]
         if tensor.dim() == 2:
-            # [B, C] → [B, C, 1, 1]
             tensor = tensor.unsqueeze(-1).unsqueeze(-1)
         elif tensor.dim() == 1:
-            tensor = tensor.unsqueeze(0).unsqueeze(-1).unsqueeze(-1)  # [C] → [1, C, 1, 1]
-        
-        # Ensure final shape is always [B, C, H, W] with H=W=1
-        if tensor.dim() != 4:
-            raise ValueError(f"[Reshape] Unexpected tensor shape {tensor.shape}, can't make CAM")
+            tensor = tensor.unsqueeze(0).unsqueeze(-1).unsqueeze(-1)
+
+        # Final safety step: squeeze everything *except* last 2 dims
+        if tensor.dim() == 4:
+            b, c, h, w = tensor.size()
+            tensor = tensor.view(b * c, h, w)  # → [B*C, H, W] → CV2 likes this
+
+        else:
+            raise ValueError(f"[Reshape] Unexpected tensor shape {tensor.shape}")
 
         return tensor
+
 
 
 
@@ -179,6 +183,13 @@ def main():
 
     # 8) compute grayscale CAMs: returns [B*T, H, W]
     if verbose: print("[Main] Generating Grad-CAM heatmaps...")
+
+    def custom_forward_hook(module, input, output):
+        print(f"[HOOK] Layer: {module.__class__.__name__} | Output shape: {output.shape if hasattr(output, 'shape') else type(output)}")
+
+    for layer in target_layers:
+        layer.register_forward_hook(custom_forward_hook)
+        
     grayscale_cams = cam(
         input_tensor=inp,            # [B, T, C, H, W] on correct device
         eigen_smooth=True,           # apply PCA-based smoothing
