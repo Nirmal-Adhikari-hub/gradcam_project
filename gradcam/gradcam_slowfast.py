@@ -1,32 +1,39 @@
+import numpy as np
+import pytorch_grad_cam.utils.image as _cam_image_utils
+import pytorch_grad_cam.base_cam    as _base_cam
+
+# keep a reference to the original
+_original_scale = _cam_image_utils.scale_cam_image
+
+def _safe_scale_cam_image(cam: np.ndarray, target_size):
+    # --- collapse any extra cam dims to 2D as before ---
+    if cam.ndim == 3:     cam = cam.mean(axis=0)
+    if cam.ndim == 1:     cam = cam[np.newaxis, :]
+
+    # --- now sanitize the target_size for cv2.resize ---
+    # Accept tuples/lists of length >=2; drop all but last two
+    if isinstance(target_size, (tuple, list)) and len(target_size) >= 2:
+        tsize = (int(target_size[-1]), int(target_size[-2]))  # (W, H) order for cv2
+    else:
+        # fallback, assume it's already (W,H)
+        tsize = target_size
+
+    # delegate to the original
+    return _original_scale(cam, tsize)
+
+# override in both modules
+_cam_image_utils.scale_cam_image = _safe_scale_cam_image
+_base_cam.scale_cam_image    = _safe_scale_cam_image
+
+
 import os
 import glob
 import cv2
 import torch
-import numpy as np
 import yaml
 from pathlib import Path
 import torch.nn as nn
-import pytorch_grad_cam.utils.image as _cam_image_utils
 
-
-import pytorch_grad_cam.utils.image as _cam_image_utils
-_original_scale = _cam_image_utils.scale_cam_image
-
-def _safe_scale_cam_image(cam: np.ndarray, target_size):
-    # If cam has 3 dims (e.g. [C, H, W] or [H, W, C]), collapse to 2D
-    if cam.ndim == 3:
-        cam = cam.mean(axis=0)
-    # If cam is 1D, make it 2D
-    if cam.ndim == 1:
-        cam = cam[np.newaxis, :]
-    return _original_scale(cam, target_size)
-
-
-_cam_image_utils.scale_cam_image = _safe_scale_cam_image
-
-# **also** rebind it inside base_cam, where GradCAM actually calls it
-import pytorch_grad_cam.base_cam as _base_cam
-_base_cam.scale_cam_image = _safe_scale_cam_image
 
 # Ensure project root on PYTHONPATH so we can import the setup files
 import sys
