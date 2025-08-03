@@ -56,6 +56,8 @@ def load_frames_from_info(info_str, args, verbose=False):
 
 
 def reshape_transform(tensor):
+    if isinstance(tensor, tuple):
+        tensor = tensor[0]
     dims = tensor.dim()
     if dims == 5:
         b, c, t, h, w = tensor.size()
