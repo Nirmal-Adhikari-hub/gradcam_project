@@ -44,6 +44,7 @@ from slowfast_setup import parse_args, load_dataset, load_model, evaluate_single
 
 # pytorch-grad-cam imports
 from pytorch_grad_cam import GradCAMPlusPlus, GradCAM, ScoreCAM
+from pytorch_grad_cam.utils.model_targets import ClassifierOutputTarget
 from pytorch_grad_cam.utils.image import show_cam_on_image
 from torch.nn.utils.rnn import PackedSequence
 
@@ -184,8 +185,19 @@ def main():
     if verbose: print("[Main] Generating Grad-CAM heatmaps...")
     for layer in target_layers:
         layer.register_forward_hook(lambda m, i, o: print(f"[HOOK] {m.__class__.__name__} → {getattr(o, 'shape', type(o))}"))
+    
+    # --- 8a) run a forward to get the predicted class index ---
+    #    We call cam_model (the wrapper) directly, since it returns [B, C] scores
+    scores = cam_model(inp)              # shape [B, num_classes]
+    pred_class = int(scores[0].argmax()) # pick the top class for sample 0
+
+    # wrap that into a target for Grad-CAM
+    targets = [ClassifierOutputTarget(pred_class)]
+
+    # now call cam with that target
     grayscale_cams = cam(
         input_tensor=inp,
+        targets=targets,
         eigen_smooth=True,
         aug_smooth=False
     )
