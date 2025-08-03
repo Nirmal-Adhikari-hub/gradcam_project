@@ -153,6 +153,23 @@ def main():
 
     cam_model = CAMWrapper(model, len_x.to(device)).to(device)
 
+    # ────────────────────────────────────────────────────────────────────────
+    #  Add this wrapper so your LSTM returns only its activation Tensor,
+    #  not the (output, hidden_state) tuple that Grad-CAM can’t handle.
+    class RNNOutputOnly(nn.Module):
+        def __init__(self, rnn):
+            super().__init__()
+            self.rnn = rnn
+        def forward(self, x):
+            output, _ = self.rnn(x)   # drop the hidden‐state tuple
+            return output             # now a pure Tensor
+
+    # Replace the raw LSTM in model.temporal_model[0] with our wrapper
+    wrapped_rnn = RNNOutputOnly(model.temporal_model[0].rnn)
+    model.temporal_model[0].rnn = wrapped_rnn
+    # ────────────────────────────────────────────────────────────────────────
+
+
     # 4) define the layers for viz
     target_layers = [
         model.conv2d.s1.pathway0_stem,
@@ -162,7 +179,8 @@ def main():
         model.conv2d.s5.pathway0_res2.branch2.c,
         model.conv2d.s5.pathway1_res2.branch2.c,
         model.conv1d.main_temporal_conv[4],
-        model.temporal_model[0].rnn,
+        # model.temporal_model[0].rnn,
+        wrapped_rnn, 
     ]
     if verbose: print(f"[Main] {len(target_layers)} target layers set up for Grad-CAM")
 
