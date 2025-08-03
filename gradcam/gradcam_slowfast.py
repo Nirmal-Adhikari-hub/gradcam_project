@@ -18,6 +18,7 @@ from slowfast_setup import parse_args, load_dataset, load_model, evaluate_single
 # pytorch-grad-cam imports
 from pytorch_grad_cam import GradCAMPlusPlus, GradCAM, ScoreCAM
 from pytorch_grad_cam.utils.image import show_cam_on_image
+from torch.nn.utils.rnn import PackedSequence
 
 
 imagenet_mean = np.array([0.485, 0.456, 0.406])[None, None, :]
@@ -56,32 +57,29 @@ def load_frames_from_info(info_str, args, verbose=False):
 
 
 def reshape_transform(tensor):
-    """
-    Adapt activations of varying dims to [B*? , C, H, W]:
-      - 5D: [B,C,T,H,W] -> [B*T, C, H, W]
-      - 3D: [B,C,T]     -> [B*T, C, 1, 1]
-      - 2D: [B,C]       -> [B,   C, 1, 1]
-    """
-    # ↓ If the module returned (output, hidden), grab the real tensor:
+    # 1) If it's a tuple (e.g. (output, hidden)), unwrap
     if isinstance(tensor, tuple):
         tensor = tensor[0]
+    # 2) If it's a PackedSequence, grab its .data tensor
+    if isinstance(tensor, PackedSequence):
+        tensor = tensor.data
+    # 3) Now it's guaranteed a Tensor
     print(f"[Reshape] Transforming tensor shape \
-        {tensor.shape}") if tensor is not None and type(tensor) is torch.Tensor else None
+    {tensor.shape}") if tensor is not None else None 
     dims = tensor.dim()
     if dims == 5:
         b, c, t, h, w = tensor.size()
         return tensor.permute(0, 2, 1, 3, 4).reshape(b * t, c, h, w)
     elif dims == 3:
         b, c, t = tensor.size()
-        # treat time as spatial dim, 1x1
         return tensor.permute(0, 2, 1).reshape(b * t, c, 1, 1)
     elif dims == 2:
         b, c = tensor.size()
         return tensor.reshape(b, c, 1, 1)
     else:
-        # fallback: flatten batch, leave channel dim
         flat = tensor.reshape(tensor.size(0), -1)
         return flat.unsqueeze(-1).unsqueeze(-1)
+
 
 
 def main():
