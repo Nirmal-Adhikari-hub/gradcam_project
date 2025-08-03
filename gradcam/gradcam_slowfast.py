@@ -201,10 +201,10 @@ def main():
         def forward(self, x, hx=None):
             packed_out, _ = self.rnn(x, hx)           # original LSTM output
             # convert to *padded* tensor so Grad-CAM sees a real Tensor
-            padded, _ = torch.nn.utils.rnn.pad_packed_sequence(
-                packed_out, batch_first=False
-            )                                         # [T,B,C]
-            return padded
+            # padded, _ = torch.nn.utils.rnn.pad_packed_sequence(
+            #     packed_out, batch_first=False
+            # )                                         # [T,B,C]
+            return packed_out
 
     # Replace the raw LSTM in model.temporal_model[0] with our wrapper
     wrapped_rnn = RNNOutputOnly(model.temporal_model[0].rnn)
