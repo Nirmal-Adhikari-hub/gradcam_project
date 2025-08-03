@@ -6,11 +6,24 @@ import numpy as np
 import yaml
 from pathlib import Path
 import torch.nn as nn
+import pytorch_grad_cam.utils.image as _cam_image_utils
+
+_original_scale = _cam_image_utils.scale_cam_image
+
+def _safe_scale_cam_image(cam: np.ndarray, target_size):
+    # If cam has 3 dims (e.g. [C, H, W] or [H, W, C]), collapse to 2D
+    if cam.ndim == 3:
+        cam = cam.mean(axis=0)
+    # If cam is 1D, make it 2D
+    if cam.ndim == 1:
+        cam = cam[np.newaxis, :]
+    return _original_scale(cam, target_size)
+
+_cam_image_utils.scale_cam_image = _safe_scale_cam_image
 
 # Ensure project root on PYTHONPATH so we can import the setup files
 import sys
 sys.path.append(str(Path(__file__).resolve().parent))
-
 
 from slowfast import utils
 from slowfast_setup import parse_args, load_dataset, load_model, evaluate_single_sample
@@ -20,7 +33,6 @@ from pytorch_grad_cam import GradCAMPlusPlus, GradCAM, ScoreCAM
 from pytorch_grad_cam.utils.image import show_cam_on_image
 from torch.nn.utils.rnn import PackedSequence
 
-
 imagenet_mean = np.array([0.485, 0.456, 0.406])[None, None, :]
 imagenet_std  = np.array([0.229, 0.224, 0.225])[None, None, :]
 
@@ -28,7 +40,6 @@ def denormalize_image(img_norm):
     # img_norm has shape [H,W,3] in normalized space
     img = img_norm * imagenet_std + imagenet_mean
     return np.clip(img, 0, 1)
-
 
 def load_frames_from_info(info_str, args, verbose=False):
     """
@@ -38,7 +49,7 @@ def load_frames_from_info(info_str, args, verbose=False):
     """
     rel_pattern = info_str.split('|')[1]
     print(f"[Frames] Loading frames from pattern: {rel_pattern}") if verbose else None
-    
+
     # Build the full path under features directory
     root = args.dataset_info['dataset_root']
     feat_dir = os.path.join(root, 'features',
@@ -55,7 +66,6 @@ def load_frames_from_info(info_str, args, verbose=False):
             print(f"  → Loaded {i+1}/{len(paths)} frames")
     return np.stack(frames, axis=0)
 
-
 def reshape_transform(tensor):
     # 1) If it's a tuple (e.g. (output, hidden)), unwrap
     if isinstance(tensor, tuple):
@@ -64,8 +74,7 @@ def reshape_transform(tensor):
     if isinstance(tensor, PackedSequence):
         tensor = tensor.data
     # 3) Now it's guaranteed a Tensor
-    print(f"[Reshape] Transforming tensor shape \
-    {tensor.shape}") if tensor is not None else None 
+    print(f"[Reshape] Transforming tensor shape {tensor.shape}") if tensor is not None else None
     dims = tensor.dim()
     if dims == 5:
         b, c, t, h, w = tensor.size()
@@ -74,34 +83,18 @@ def reshape_transform(tensor):
         b, c, t = tensor.size()
         return tensor.permute(0, 2, 1).reshape(b * t, c, 1, 1)
     elif dims == 2:
+        # collapse [B, C] → [B*C, 1, 1] so we end up with a true 2D heatmap per channel
         b, c = tensor.size()
-        return tensor.reshape(b, c, 1, 1)
+        return tensor.view(b * c, 1, 1)
     else:
-        # Ensure shape is always [B, C, 1, 1]
-        if tensor.dim() == 2:
-            tensor = tensor.unsqueeze(-1).unsqueeze(-1)
-        elif tensor.dim() == 1:
-            tensor = tensor.unsqueeze(0).unsqueeze(-1).unsqueeze(-1)
-
-        # Final safety step: squeeze everything *except* last 2 dims
-        if tensor.dim() == 4:
-            b, c, h, w = tensor.size()
-            tensor = tensor.view(b * c, h, w)  # → [B*C, H, W] → CV2 likes this
-
-        else:
-            raise ValueError(f"[Reshape] Unexpected tensor shape {tensor.shape}")
-
-        return tensor
-
-
-
-
-
+        # 1D or unknown dims – make it 2D
+        # e.g. [C] → [C, 1, 1]
+        flat = tensor.flatten()
+        return flat.view(flat.size(0), 1, 1)
 
 def main():
     # 1) Parse all arguments (mode, index, config, ckpt, etc.)
     args = parse_args()
-    # ensure verbose exists
     args.verbose = getattr(args, 'verbose', False)
     verbose = args.verbose
     if verbose: print("[Main] Arguments:", args)
@@ -125,44 +118,36 @@ def main():
         def __init__(self, slr_model, sample_len_x):
             super().__init__()
             self.model = slr_model
-            # We will expand len_x along the batch dimension inside the forward
             self.sample_len_x = sample_len_x
 
         def forward(self, x):
             B = x.size(0)
             len_x_batch = self.sample_len_x.repeat(B)
-
-            # 🔧 Save current training mode (True/False)
             was_training = self.model.training
-            self.model.train()  # ✅ Force training mode so RNN backward works
-
+            self.model.train()
             with torch.set_grad_enabled(True):
                 out = self.model(x, len_x_batch)
-                seq_logits = out['sequence_logits'][0]  # [T, C] or [T, B, C]
-
+                seq_logits = out['sequence_logits'][0]
                 if seq_logits.dim() == 3:
-                    seq_logits = seq_logits.permute(1, 0, 2)  # [T, B, C] → [B, T, C]
-                    score = seq_logits.mean(dim=1)            # [B, C]
+                    seq_logits = seq_logits.permute(1, 0, 2)
+                    score = seq_logits.mean(dim=1)
                 else:
-                    score = seq_logits.mean(dim=0).unsqueeze(0)  # [C] → [1, C]
-
-            self.model.train(was_training)  # 🔄 Restore original training/eval mode
+                    score = seq_logits.mean(dim=0).unsqueeze(0)
+            self.model.train(was_training)
             return score
 
-
-        
     cam_model = CAMWrapper(model, len_x.to(device)).to(device)
 
     # 4) define the layers for viz
     target_layers = [
-        model.conv2d.s1.pathway0_stem,             # 🐢 Slow stream: early layer (S1)
-        model.conv2d.s1.pathway1_stem,             # 🐇 Fast stream: early layer (S1)
-        model.conv2d.s3.pathway0_res1.branch2.c,   # 🐢 Slow stream: mid-depth layer (S3)
-        model.conv2d.s3.pathway1_res1.branch2.c,   # 🐇 Fast stream: mid-depth layer (S3)
-        model.conv2d.s5.pathway0_res2.branch2.c,   # 🐢 Slow stream: deep layer (S5)
-        model.conv2d.s5.pathway1_res2.branch2.c,   # 🐇 Fast stream: deep layer (S5)
-        model.conv1d.main_temporal_conv[4],        # 🧠 SlowFast-fused temporal convolution
-        model.temporal_model[0].rnn,               # 🧠 BiLSTM layer after temporal fusion
+        model.conv2d.s1.pathway0_stem,
+        model.conv2d.s1.pathway1_stem,
+        model.conv2d.s3.pathway0_res1.branch2.c,
+        model.conv2d.s3.pathway1_res1.branch2.c,
+        model.conv2d.s5.pathway0_res2.branch2.c,
+        model.conv2d.s5.pathway1_res2.branch2.c,
+        model.conv1d.main_temporal_conv[4],
+        model.temporal_model[0].rnn,
     ]
     if verbose: print(f"[Main] {len(target_layers)} target layers set up for Grad-CAM")
 
@@ -175,30 +160,24 @@ def main():
     )
 
     # 6) load raw frames
-    frames = load_frames_from_info(info[0], args, verbose=verbose)  # [T, H, W, 3]
+    frames = load_frames_from_info(info[0], args, verbose=verbose)
 
-    # 7) prepare the input tensor: use original `data` shape [B, T, C, H, W]
+    # 7) prepare the input tensor
     if verbose: print("[Main] Preparing input tensor and moving to device")
     inp = data.to(device)
 
-    # 8) compute grayscale CAMs: returns [B*T, H, W]
+    # 8) compute grayscale CAMs
     if verbose: print("[Main] Generating Grad-CAM heatmaps...")
-
-    def custom_forward_hook(module, input, output):
-        print(f"[HOOK] Layer: {module.__class__.__name__} | Output shape: {output.shape if hasattr(output, 'shape') else type(output)}")
-
     for layer in target_layers:
-        layer.register_forward_hook(custom_forward_hook)
-        
+        layer.register_forward_hook(lambda m, i, o: print(f"[HOOK] {m.__class__.__name__} → {getattr(o, 'shape', type(o))}"))
     grayscale_cams = cam(
-        input_tensor=inp,            # [B, T, C, H, W] on correct device
-        eigen_smooth=True,           # apply PCA-based smoothing
-        aug_smooth=False             # disable augmentation-based smoothing
+        input_tensor=inp,
+        eigen_smooth=True,
+        aug_smooth=False
     )
 
     # 9) reshape back to [B, T, H, W]
-    b, t_h, _, h, w = inp.size()      # inp: [B, T, C, H, W]
-    # note: after reshape_transform, grayscale_cams shape [B*T, H, W]
+    b, t_h, _, h, w = inp.size()
     cams = grayscale_cams.reshape(b, t_h, h, w)
 
     # 10) overlay and save per-layer per-frame
@@ -216,11 +195,10 @@ def main():
             if verbose and frame_i % 20 == 0:
                 print(f"    → Saved frame {frame_i}/{t_h} for layer {idx}")
 
-    # 11) Optionally, print single-sample WER to correlate
+    # 11) print single-sample WER
     if verbose: print("[Main] Computing single-sample WER for correlation")
     wer, decoded, info = evaluate_single_sample(model, feeder, args, str(out_base))
     print(f"Sample WER: {wer:.2f}% | Video ID: {info[0].split('|')[0]}")
-
 
 if __name__ == "__main__":
     main()
