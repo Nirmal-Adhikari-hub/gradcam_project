@@ -109,10 +109,9 @@ def main():
           round(t_sel * frames.shape[0] / logits_TBC.size(0)), ")")
     probs = scores.softmax(-1)
     topk  = torch.topk(probs, k=5)
-    # ---- fixed cast ------------------------------------------------------
-    print("Top-5        :", [(int(i.item()), float(p.item()))
-                            for p, i in zip(topk.values, topk.indices)])
-    print()
+    vals = topk.values.cpu().tolist()      # list[float]   length = k (=5)
+    idxs = topk.indices.cpu().tolist()     # list[int]     length = k
+    print("Top-5        :", list(zip(idxs, vals)))
 
     # ── 5. tiny wrapper so Grad-CAM sees the chosen score vector ----------
     class CAMWrap(nn.Module):
