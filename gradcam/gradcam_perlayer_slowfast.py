@@ -143,9 +143,13 @@ def main():
         g = cam(inp, targets=[ClassifierOutputTarget(top_id)],
                 eigen_smooth=True, aug_smooth=False)      # (N,Hₘ,Wₘ)
         
-        # ── NEW: make vector outputs look like tiny 1×1 maps ───────────────
-        if g.ndim == 2:                                   # (N,P)  →  (N,1,1)
+        # ── NORMALISE CAM SHAPES ───────────────────────────────────────────
+        if g.ndim == 2:                 # (N,P)  →  (N,1,1)
             g = g[:, None, None]
+
+        elif g.ndim == 4:               # (N,C,H,W)  →  (N,H,W)
+            g = g.mean(1)               # average over channels
+        # now g is always (N, Hm, Wm)
         # ───────────────────────────────────────────────────────────────────
 
         # g.shape = (B*T, Hl, Wl); recover video length T
