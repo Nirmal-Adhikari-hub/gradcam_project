@@ -72,7 +72,30 @@ def main():
             p,_ = s.r(x, h)
             pad,_ = rnn_utils.pad_packed_sequence(p, batch_first=False)
             return pad                            # [T,B,C]
-    model.temporal_model[0].rnn = ROut(model.temporal_model[0].rnn)
+        
+    import types, torch.nn.utils.rnn as rnn_utils
+
+    def patch_bilstm_forward(self, src, lens, hidden=None):
+        packed = rnn_utils.pack_padded_sequence(src, lens)
+        out = self.rnn(packed, hidden)
+
+        # ── accept both “(outputs, hidden)” **or** plain tensor ──
+        if isinstance(out, torch.Tensor):            # our ROut wrapper
+            packed_outputs, hidden = out, None
+        elif isinstance(out, rnn_utils.PackedSequence):
+            packed_outputs, hidden = out, None       # already packed
+        else:                                        # standard LSTM
+            packed_outputs, hidden = out
+
+        if isinstance(packed_outputs, rnn_utils.PackedSequence):
+            outputs, _ = rnn_utils.pad_packed_sequence(packed_outputs)
+        else:
+            outputs = packed_outputs                 # already padded
+
+        return {"predictions": outputs, "hidden": hidden}
+
+    model.temporal_model[0].forward = types.MethodType(
+            patch_bilstm_forward, model.temporal_model[0])
 
     # small forward pass **WITH grads enabled** ---------------------------
     out = model(inp, len_x)['sequence_logits'][0]       # [T,B,C]
