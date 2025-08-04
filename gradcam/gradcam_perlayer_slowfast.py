@@ -115,21 +115,22 @@ def main():
 
     # ── 5. tiny wrapper so Grad-CAM sees the chosen score vector ────────────
     class CAMWrap(nn.Module):
-        def __init__(self, v):
+        def __init__(self, v: torch.Tensor):
             super().__init__()
-            # keep the 1×C score row as a **buffer**
-            self.register_buffer("vrow", v.unsqueeze(0))      # (1 , C)
-            # one fake parameter so Grad-CAM finds a .parameter()
+            # make sure we have exactly (1 , C)
+            self.register_buffer("vrow", v.reshape(1, -1))      # ← changed
+            # dummy param so Grad-CAM finds at least one .parameter()
             self.dummy = nn.Parameter(torch.zeros(1))
 
         def forward(self, x):
             """
-            x arrives as a 5-D video tensor  (B , C , T , H , W).
-            All we need is the *batch size*, then we broadcast the
-            stored scores to shape (B , C) and return them.
+            x is the full video tensor (B, C, T, H, W) – we only need B.
+            Return the same scores for every item in the batch so the
+            CAM is computed w.r.t. the chosen gloss.
             """
-            B = x.shape[0]
-            return self.vrow.expand(B, -1)                    # (B , C)  ⟵ OK
+            B = x.size(0)
+            return self.vrow.expand(B, -1)          # (B , C)
+
 
     cam_model = CAMWrap(scores.to(dev))
 
