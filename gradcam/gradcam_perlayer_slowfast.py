@@ -142,6 +142,11 @@ def main():
         cam = GradCAMPlusPlus(cam_model, [layer], reshape_transform=reshape)
         g = cam(inp, targets=[ClassifierOutputTarget(top_id)],
                 eigen_smooth=True, aug_smooth=False)      # (N,Hₘ,Wₘ)
+        
+        # ── NEW: make vector outputs look like tiny 1×1 maps ───────────────
+        if g.ndim == 2:                                   # (N,P)  →  (N,1,1)
+            g = g[:, None, None]
+        # ───────────────────────────────────────────────────────────────────
 
         # g.shape = (B*T, Hl, Wl); recover video length T
         BT, Hl, Wl = g.shape
