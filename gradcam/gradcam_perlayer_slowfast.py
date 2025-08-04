@@ -1,45 +1,54 @@
-# ───────── gradcam_perlayer_slowfast.py  (drop straight in) ─────────
+# ───────── gradcam_perlayer_slowfast.py ──────────────────────────────────
+"""
+Grad-CAM++ visualisation for four representative SlowFast layers.
+
+• We pick the *last* frame-step in the SLR sequence whose arg-max gloss
+  is **not** the <unk> id (0).  That gloss drives the CAM.
+• Overlays are written to
+      slowfast/work_dir/gradcam_per_layer/<layer>/frameXXX.jpg
+"""
+
 import sys, glob, cv2, numpy as np
 from pathlib import Path
 import torch, torch.nn as nn, torch.nn.utils.rnn as rnn_utils
 from torch.nn.utils.rnn import PackedSequence
 
-# ─── make pytorch-grad-cam’s resize tolerant of odd inputs ──────────
+# ── make pytorch-grad-cam resize tolerant of odd inputs ─────────────────
 import pytorch_grad_cam.utils.image as _im
 import pytorch_grad_cam.base_cam    as _bc
 _orig = _im.scale_cam_image
 def _safe(img, tgt=None):
     if img.ndim == 3: img = img.mean(0)
     if img.ndim == 1: img = img[None]
-    if isinstance(tgt, (list, tuple)) and len(tgt) >= 2:
-        tgt = (int(tgt[-1]), int(tgt[-2]))           # (W,H)
+    if isinstance(tgt,(list,tuple)) and len(tgt) >= 2:
+        tgt = (int(tgt[-1]), int(tgt[-2]))          # (W,H) for cv2
     return _orig(img, tgt)
 _im.scale_cam_image = _safe
 _bc.scale_cam_image = _safe
-# ────────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────
 
 sys.path.append(str(Path(__file__).resolve().parent))
 from slowfast_setup import parse_args, load_dataset, load_model
-from pytorch_grad_cam import GradCAMPlusPlus
+from pytorch_grad_cam               import GradCAMPlusPlus
 from pytorch_grad_cam.utils.image   import show_cam_on_image
 from pytorch_grad_cam.utils.model_targets import ClassifierOutputTarget
 
-MEAN = np.array([0.485, 0.456, 0.406])[None, None]
-STD  = np.array([0.229, 0.224, 0.225])[None, None]
-denorm = lambda x: np.clip(x*STD + MEAN, 0, 1)
+MEAN = np.array([0.485,0.456,0.406])[None,None]
+STD  = np.array([0.229,0.224,0.225])[None,None]
+denorm = lambda x:(x*STD+MEAN).clip(0,1)
 
 def reshape(t):
-    if isinstance(t, tuple):            t = t[0]
-    if isinstance(t, PackedSequence):   t = t.data
-    if t.ndim == 5:                     # [B,C,T,H,W] → [B*T,C,H,W]
+    if isinstance(t,tuple):              t = t[0]
+    if isinstance(t,PackedSequence):     t = t.data
+    if t.ndim == 5:                      # [B,C,T,H,W] → [B*T,C,H,W]
         B,C,T,H,W = t.shape
         return t.permute(0,2,1,3,4).reshape(B*T, C, H, W)
-    if t.ndim == 3:                     # [B,C,T] → [B*T,C,1,1]
+    if t.ndim == 3:                      # [B,C,T] → [B*T,C,1,1]
         B,C,T = t.shape
         return t.permute(0,2,1).reshape(B*T, C, 1, 1)
-    if t.ndim == 2:                     # [B,C]   → [B*C,1,1]
+    if t.ndim == 2:                      # [B,C]   → [B*C,1,1]
         B,C = t.shape
-        return t.view(B*C, 1, 1)
+        return t.view(B*C,1,1)
     return t.flatten().view(-1,1,1)
 
 def load_frames(info, args):
@@ -50,7 +59,7 @@ def load_frames(info, args):
     return np.stack([cv2.imread(p)[:,:,::-1].astype(np.float32)/255
                      for p in paths])
 
-# ────────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────
 def main():
     args = parse_args()
     dev  = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -65,63 +74,65 @@ def main():
     frames = load_frames(info[0], args)          # raw RGB [N,H,W,3]
     inp    = data.to(dev)                        # (B,C,T,H,W)
 
-    # ── patch first BiLSTM so it returns a tensor, not (Packed, hidden) ──
+    # ── 1. patch first BiLSTM so its .rnn may return tensor only ──────────
     class ROut(nn.Module):
         def __init__(s, r): super().__init__(); s.r = r
         def forward(s, x, h=None):
             p,_ = s.r(x, h)
             pad,_ = rnn_utils.pad_packed_sequence(p, batch_first=False)
-            return pad                            # [T,B,C]
-        
-    import types, torch.nn.utils.rnn as rnn_utils
+            return pad                           # [T,B,C]
+    model.temporal_model[0].rnn = ROut(model.temporal_model[0].rnn)
 
+    # robust forward for that layer ---------------------------------------
+    import types
     def patch_bilstm_forward(self, src, lens, hidden=None):
         packed = rnn_utils.pack_padded_sequence(src, lens)
         out = self.rnn(packed, hidden)
-
-        # ── accept both “(outputs, hidden)” **or** plain tensor ──
-        if isinstance(out, torch.Tensor):            # our ROut wrapper
-            packed_outputs, hidden = out, None
+        # accept 3 possible return types
+        if isinstance(out, torch.Tensor):
+            packed_out, hidden = out, None
         elif isinstance(out, rnn_utils.PackedSequence):
-            packed_outputs, hidden = out, None       # already packed
-        else:                                        # standard LSTM
-            packed_outputs, hidden = out
-
-        if isinstance(packed_outputs, rnn_utils.PackedSequence):
-            outputs, _ = rnn_utils.pad_packed_sequence(packed_outputs)
+            packed_out, hidden = out, None
         else:
-            outputs = packed_outputs                 # already padded
-
-        return {"predictions": outputs, "hidden": hidden}
-
+            packed_out, hidden = out
+        if isinstance(packed_out, rnn_utils.PackedSequence):
+            preds,_ = rnn_utils.pad_packed_sequence(packed_out)
+        else:
+            preds = packed_out
+        return {"predictions": preds, "hidden": hidden}
     model.temporal_model[0].forward = types.MethodType(
-            patch_bilstm_forward, model.temporal_model[0])
+        patch_bilstm_forward, model.temporal_model[0])
 
-    # small forward pass **WITH grads enabled** ---------------------------
-    out = model(inp, len_x)['sequence_logits'][0]       # [T,B,C]
-    per_frame_ids = out.argmax(-1)[:,0]                 # [T]
+    # ── 2. quick forward pass WITH grads enabled (model must be train()) ──
+    was_training = model.training
+    model.train()                                  # CuDNN RNN backward req.
+    out = model(inp, len_x)['sequence_logits'][0].detach()  # [T,B,C]
+    model.train(was_training)                      # restore original mode
+
+    per_frame_ids = out.argmax(-1)[:,0]
     valid_ts = (per_frame_ids != 0).nonzero(as_tuple=False)
-
     t_sel = int(valid_ts[-1]) if len(valid_ts) else out.size(0)-1
-    scores = out[t_sel]        # [B=1 , C]  keeps grad graph
+    scores = out[t_sel].clone().requires_grad_(True)   # [B=1,C]
     top_id = int(scores.argmax())
 
-    # diagnostics ---------------------------------------------------------
     print(f"\nVideo file  : {info[0].split('|')[0]}")
     print(f"Raw frames  : {frames.shape[0]}")
     print(f"Picked t    : {t_sel}   (raw-frame ≈ "
           f"{round(t_sel*frames.shape[0]/out.size(0))})")
     probs = scores.softmax(-1)[0]
-    k = 5
-    topk_p , topk_i = torch.topk(probs, k=k)
-    print("Top-5       :", [(int(i), float(p)) for p,i in zip(topk_p, topk_i)])
+    k=5
+    tk_p, tk_i = torch.topk(probs, k)
+    print("Top-5       :", [(int(i), float(p)) for p,i in zip(tk_p, tk_i)])
 
-    # simple wrapper that re-runs the SAME forward, then selects t_sel ----
+    # ── 3. wrapper that recomputes logits (so grads flow) ────────────────
     class CAMWrap(nn.Module):
         def __init__(s, core, t): super().__init__(); s.core, s.t = core, t
         def forward(s, x):
+            state = s.core.training
+            s.core.train()                               # enable CuDNN bwd
             logits = s.core(x, len_x)['sequence_logits'][0]  # [T,B,C]
-            return logits[s.t]                               # [B,C]
+            s.core.train(state)
+            return logits[s.t]                           # [B,C]
     cam_model = CAMWrap(model, t_sel).to(dev)
 
     layers = [
@@ -137,23 +148,21 @@ def main():
     for lname, layer in layers:
         print(f"→ Running Grad-CAM on [{lname}] …")
         cam = GradCAMPlusPlus(cam_model, [layer], reshape_transform=reshape)
-
         g = cam(inp, targets=[ClassifierOutputTarget(top_id)],
-                eigen_smooth=True, aug_smooth=False)   # (N,Hm,Wm)  N = B*T
+                eigen_smooth=True, aug_smooth=False)          # (N,Hm,Wm)
 
-        if g.ndim == 4: g = g.mean(1)                  # squeeze channel dim
+        if g.ndim == 4: g = g.mean(1)                         # squeeze C
         if g.ndim == 2: g = g[:,None,None]
 
         BT = g.shape[0]
         idxs = np.linspace(0, frames.shape[0]-1, BT).round().astype(int)
-
-        save_dir = out_root / lname
+        save_dir = out_root/lname
         save_dir.mkdir(parents=True, exist_ok=True)
 
-        for i, (hm, fi) in enumerate(zip(g, idxs)):
+        for i,(hm,fi) in enumerate(zip(g, idxs)):
             hm = cv2.resize(hm.astype(np.float32),
                             (frames.shape[2], frames.shape[1]))
-            hm = (hm - hm.min()) / (hm.max() - hm.min() + 1e-7)
+            hm = (hm-hm.min())/(hm.max()-hm.min()+1e-7)
             vis = show_cam_on_image(denorm(frames[fi]), hm,
                                     use_rgb=True, image_weight=1-alpha)
             cv2.putText(vis, f"{gloss_dict.get(top_id,'<unk>')}  t={fi}",
@@ -164,6 +173,6 @@ def main():
 
     print("\nFinished.  See results in  slowfast/work_dir/gradcam_per_layer/")
 
-# -----------------------------------------------------------------------
+# ─────────────────────────────────────────────────────────────────────────
 if __name__ == '__main__':
     main()
