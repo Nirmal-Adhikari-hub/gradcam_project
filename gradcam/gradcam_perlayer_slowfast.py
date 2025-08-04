@@ -113,10 +113,24 @@ def main():
     idxs = topk.indices.cpu().tolist()     # list[int]     length = k
     print("Top-5        :", list(zip(idxs, vals)))
 
-    # ── 5. tiny wrapper so Grad-CAM sees the chosen score vector ----------
+    # ── 5. tiny wrapper so Grad-CAM sees the chosen score vector ────────────
     class CAMWrap(nn.Module):
-        def __init__(s,v): super().__init__(); s.v=v[None]; s.dummy = nn.Parameter(torch.zeros(1))      # [1,C]
-        def forward(s,x): return s.v.repeat(x.size(0),1)        # broadcast to batch
+        def __init__(self, v):
+            super().__init__()
+            # keep the 1×C score row as a **buffer**
+            self.register_buffer("vrow", v.unsqueeze(0))      # (1 , C)
+            # one fake parameter so Grad-CAM finds a .parameter()
+            self.dummy = nn.Parameter(torch.zeros(1))
+
+        def forward(self, x):
+            """
+            x arrives as a 5-D video tensor  (B , C , T , H , W).
+            All we need is the *batch size*, then we broadcast the
+            stored scores to shape (B , C) and return them.
+            """
+            B = x.shape[0]
+            return self.vrow.expand(B, -1)                    # (B , C)  ⟵ OK
+
     cam_model = CAMWrap(scores.to(dev))
 
     # ── 6. layers to visualise -------------------------------------------
