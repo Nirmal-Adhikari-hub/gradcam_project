@@ -105,11 +105,13 @@ def main():
     # ── 4. diagnostics ----------------------------------------------------
     print("\nVideo file  :", info[0].split('|')[0])
     print("Raw frames  :", frames.shape[0])
-    print("Picked t    :", t_sel, "  (raw-frame ≈", 
+    print("Picked t    :", t_sel, "  (raw-frame ≈",
           round(t_sel * frames.shape[0] / logits_TBC.size(0)), ")")
     probs = scores.softmax(-1)
     topk  = torch.topk(probs, k=5)
-    print("Top-5        :", [(int(i), float(p)) for p,i in zip(topk.values, topk.indices)])
+    # ---- fixed cast ------------------------------------------------------
+    print("Top-5        :", [(int(i.item()), float(p.item()))
+                            for p, i in zip(topk.values, topk.indices)])
     print()
 
     # ── 5. tiny wrapper so Grad-CAM sees the chosen score vector ----------
