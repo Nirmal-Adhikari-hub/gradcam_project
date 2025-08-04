@@ -153,7 +153,8 @@ def main():
         # ───────────────────────────────────────────────────────────────────
 
         # g.shape = (B*T, Hl, Wl); recover video length T
-        BT, Hl, Wl = g.shape
+        BT = g.shape[0]
+        Hl, Wl = g.shape[-2:]
         B          = inp.shape[0]
         T_heat     = BT // B
 
