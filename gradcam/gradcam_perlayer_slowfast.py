@@ -115,7 +115,7 @@ def main():
 
     # ── 5. tiny wrapper so Grad-CAM sees the chosen score vector ----------
     class CAMWrap(nn.Module):
-        def __init__(s,v): super().__init__(); s.v=v[None]      # [1,C]
+        def __init__(s,v): super().__init__(); s.v=v[None]; s.dummy = nn.Parameter(torch.zeros(1))      # [1,C]
         def forward(s,x): return s.v.repeat(x.size(0),1)        # broadcast to batch
     cam_model = CAMWrap(scores.to(dev))
 
