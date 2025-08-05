@@ -154,10 +154,12 @@ def main():
 
         cam = GradCAM(model=wrapper_model, 
                       target_layers=[layer],
-                      reshape_transform=reshape_transform
+                      reshape_transform=reshape_transform,
+                      use_gradient=True,  # Enable gradient computation
                       )
-        H, W = input_tensor.shape[-2], input_tensor.shape[-1]
-        cam.target_size = (W, H)  # (width, height) — OpenCV uses width first!
+        # H, W = input_tensor.shape[-2], input_tensor.shape[-1]
+        # cam.target_size = (W, H)  # (width, height) — OpenCV uses width first!
+        cam.target_size = None
         grayscale_cam = cam(input_tensor=input_tensor, targets=None)
         print(f"Grayscale CAM shape for {layer_name}: {grayscale_cam.shape}")  # [B*T, H, W]
         B, T = input_tensor.shape[0], len_x.item() # len_x is a tensor([T])
