@@ -4,6 +4,8 @@ import yaml
 import torch
 import numpy as np
 from pathlib import Path
+import cv2
+import glob
 
 # Ensure project root is in PYTHONPATH for slowfast imports
 sys.path.append(str(Path(__file__).resolve().parent))
@@ -21,6 +23,31 @@ def load_yaml(path: str):
             return yaml.load(f, Loader=yaml.FullLoader)
         except AttributeError:
             return yaml.load(f)
+        
+def load_frames_from_info(info_str, args, verbose=False):
+    """
+    Read the raw RGB frames for a sample.
+    Expects info_str like '...|/path/to/frames/*.png|...
+    Returns a numpy array of shape [T, H, W, 3], values in [0,1].
+    """
+    rel_pattern = info_str.split('|')[1]
+    print(f"[Frames] Loading frames from pattern: {rel_pattern}") if verbose else None
+
+    # Build the full path under features directory
+    root = args.dataset_info['dataset_root']
+    feat_dir = os.path.join(root, 'features',
+                            f"fullFrame-256x256px/{args.mode}")
+    frame_pattern = os.path.join(feat_dir, rel_pattern)
+    if verbose: print(f"[Frames] Glob pattern: {frame_pattern}")
+    paths = sorted(glob.glob(frame_pattern))
+    if verbose: print(f"[Frames] Found {len(paths)} frames")
+    frames = []
+    for i, p in enumerate(paths):
+        img = cv2.imread(p)[:, :, ::-1].astype(np.float32) / 255.0  # BGR->RGB, normalize
+        frames.append(img)
+        if verbose and (i + 1) % 20 == 0:
+            print(f"  → Loaded {i+1}/{len(paths)} frames")
+    return np.stack(frames, axis=0)
 
 
 def load_dataset(args, gloss_dict):
@@ -91,14 +118,16 @@ def evaluate_single_sample(model, feeder, args, out_dir: str):
 def parse_args():
     # Parse arguments
     sparser = utils.get_parser()
-    sparser.add_argument('--mode', type=str, default='test',
+    sparser.add_argument('--mode', type=str, default='train',
                         help='Dataset split to use (train/dev/test)')
-    sparser.add_argument('--index', type=int, default=0,
+    sparser.add_argument('--index', type=int, default=5670,
                         help='Index of the sample in the feeder to evaluate')
     sparser.add_argument('--verbose', action='store_true',
                         help='Print progress messages')
+    # sparser.add_argument('--slowfast_ckpt', type=str,
+    #                     default='/shared/home/xvoice/nirmal/gradcam/checkpoints/slow_fast_phoenix2014_dev_18.01_test_18.28.pt')
     sparser.add_argument('--slowfast_ckpt', type=str,
-                        default='/shared/home/xvoice/nirmal/gradcam/checkpoints/slow_fast_phoenix2014_dev_18.01_test_18.28.pt')
+                        default='/home/nirmal/SlowFast/GradCAMs/checkpoints/slow_fast_phoenix2014_dev_18.01_test_18.28.pt')
     p = sparser.parse_args()
 
     # p.config = "baseline_iter.yaml"

@@ -1,0 +1,179 @@
+import torch
+import os, sys
+import numpy as np
+from pathlib import Path
+import torch.nn as nn
+
+from pytorch_grad_cam import GradCAM, HiResCAM, ScoreCAM, GradCAMPlusPlus, AblationCAM, XGradCAM, EigenCAM, FullGrad
+from pytorch_grad_cam.utils.model_targets import ClassifierOutputTarget
+from pytorch_grad_cam.utils.image import show_cam_on_image
+
+sys.path.append(str(Path(__file__).resolve().parent))
+
+from slowfast_setup import parse_args, load_dataset, load_model, evaluate_single_sample, load_frames_from_info
+
+
+def reshape_transform(tensor):
+    """
+    Reshape tensor to [B*T, C, H, W] if it is in [B, C, T, H, W] format.
+    """
+    # Grad-CAM sees [B,C,T,H,W] activations
+    B, C, T, H, W = tensor.shape
+    tensor = tensor.permute(0, 2, 1, 3, 4)  # [B, T, C, H, W]
+    return tensor.reshape(B * T, C, H, W)  # [B*T, C, H, W]
+
+class CAMWrapper(nn.Module):
+    """
+    Wrapper for Grad-CAM to handle the model's forward pass
+    """
+    def __init__(self, model, len_x):
+        super().__init__()
+        self.model = model
+        self.len_x = len_x
+
+    def forward(self, x):
+        B = x.size(0)
+        len_x_batch = self.len_x.repeat(B)
+        was_training = self.model.training
+        self.model.eval()
+        with torch.set_grad_enabled(True):
+            out = self.model(x, len_x_batch)
+            seq_logits = out['sequence_logits'][0]
+        self.model.train(was_training)
+        return seq_logits
+
+def main():
+    args = parse_args()
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    gloss_dict = np.load(args.dataset_info['dict_path'], allow_pickle=True).item()
+
+    feeder = load_dataset(args=args, gloss_dict=gloss_dict)
+    ckpt = args.slowfast_ckpt
+
+    model = load_model(args=args, gloss_dict=gloss_dict, 
+                       checkpoint_path=ckpt)
+
+    out_dir = './slowfast/work_dir/gradcam_eval'
+    wer, decoded, info = evaluate_single_sample(model, feeder, args, out_dir)
+    print(f"Single-sample WER: {wer:.2f}% | Info: {info}") 
+    
+    target_layers = [
+        model.conv2d.s1.pathway0_stem,
+        model.conv2d.s1.pathway1_stem,
+        model.conv2d.s4.pathway0_res22,
+        model.conv2d.s4.pathway1_res22,
+        model.conv2d.s5.pathway0_res2,
+        model.conv2d.s5.pathway1_res2,
+    ]
+
+    #### HOOKS TO CHECK THE TARGET LAYERS ACTIVATIONS AND GRADIENTS SHAPE ####
+    def forward_hook(name):
+        def hook(module,input, output):
+            print(f"[FORWARD HOOK] {name} activation shape: {output.shape}")
+        return hook
+    
+    def backward_hook(name):
+        def hook(module, grad_input, grad_output):
+            print(f"[BACKWARD HOOK] {name} gradient shape: {grad_output[0].shape}")
+        return hook
+    
+    hooks_registered = False  # Flag to prevent re-registering
+    forward_handles = []
+    backward_handles = []
+    ##########################################################################
+
+    input_tensor, len_x, _, _, info = feeder.collate_fn([feeder[args.index]])
+    # print(f"Input tensor shape: {input_tensor.shape}") # [B, T, C, H, W]
+
+    # input_tensor = input_tensor.permute(0,2,1,3,4).to(device)  # [B, C, T, H, W]
+    input_tensor = input_tensor.to(device)
+
+    wrapper_model = CAMWrapper(model, len_x.to(device)).to(device)
+
+    # cam = GradCAM(
+    #     model=wrapper_model,
+    #     target_layers=target_layers,
+    #     )
+
+    frames = load_frames_from_info(info[0], args, verbose=args.verbose)
+    print(f"Frames shape: {frames.shape}")  # [N, H, W, 3]
+
+    # grayscale_cam = cam(
+    #     input_tensor=input_tensor,
+    #     targets=None,
+    #     )
+    
+    # print(f"Grayscale CAM shape: {grayscale_cam.shape}")  # [B, T, H, W]
+    # print(f"Grayscale CAM : {grayscale_cam}")  # Should be float32
+    # grayscale_cam = grayscale_cam[0, :]
+    # print(f"Grayscale CAM shape: {grayscale_cam.shape}")  # [T, H, W]
+
+    N = frames.shape[0]
+
+    from PIL import Image
+    from pathlib import Path
+    out_root = Path('slowfast/work_dir/gradcam_per_layer')
+    out_root.mkdir(parents=True, exist_ok=True)
+
+    target_layer_names = [
+            'pathway0_stem',
+            'pathway1_stem',
+            'pathway0_res22',
+            'pathway1_res22',
+            'pathway0_res2',
+            'pathway1_res2'
+    ]
+
+    # --- CORRECTED SAFE UPSAMPLE ---
+    def upsample_cam(cam, size):
+        denom = cam.max() - cam.min()
+        if denom == 0:
+            cam = np.zeros_like(cam, dtype=np.float32)
+        else:
+            cam = (cam - cam.min()) / denom #Normalize to [0,1]
+        cam = (cam * 255).astype(np.uint8)
+        img = Image.fromarray(cam)
+        img = img.resize(size, resample=Image.BILINEAR)
+        upsampled = np.array(img).astype(np.float32) / 255
+        return upsampled
+    
+    for layer_idx, (layer, layer_name) in enumerate(zip(target_layers, target_layer_names)):
+
+        if not hooks_registered:
+            lname = f"target_layer_{layer_idx}"
+            fh = layer.register_forward_hook(forward_hook(lname))
+            bh = layer.register_full_backward_hook(backward_hook(lname))
+            forward_handles.append(fh)
+            backward_handles.append(bh)
+            hooks_registered = True  # Register hooks only once
+
+        cam = GradCAM(model=wrapper_model, 
+                      target_layers=[layer],
+                      reshape_transform=reshape_transform
+                      )
+        grayscale_cam = cam(input_tensor=input_tensor, targets=None)
+        print(f"Grayscale CAM shape for {layer_name}: {grayscale_cam.shape}")  # [B*T, H, W]
+        B, T = input_tensor.shape[0], len_x.item() # len_x is a tensor([T])
+        grayscale_cam = grayscale_cam.reshape(B, T, *grayscale_cam.shape[1:])  # [B, T, H, W]
+        print(f"[Reshaped] Grayscale CAM: {grayscale_cam.shape}")  # [B, T, H, W]
+        cam_maps_layer = grayscale_cam[0]  # Select batch 0, shape [T, H, W]
+        T_cam = cam_maps_layer.shape[0]
+        layer_folder = out_root / layer_name
+        layer_folder.mkdir(exist_ok=True)
+        for t in range(T_cam):
+            frame_idx = int(round((t / (T_cam - 1)) * (N - 1)))
+            rgb_img = frames[frame_idx]
+            if rgb_img.max() > 1:
+                rgb_img = rgb_img.astype(np.float32) / 255
+            cam_img = upsample_cam(cam_maps_layer[t], size=(rgb_img.shape[0], rgb_img.shape[1]))
+            visualization = show_cam_on_image(rgb_img, cam_img, use_rgb=True)
+            save_path = layer_folder / f"frame_{frame_idx}_cam_{t}.png"
+            Image.fromarray(visualization).save(save_path)
+
+    for h in forward_handles:
+        h.remove()
+    for h in backward_handles:
+        h.remove()
+
+if __name__ == "__main__":
+    main()

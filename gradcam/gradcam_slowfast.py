@@ -40,7 +40,7 @@ import sys
 sys.path.append(str(Path(__file__).resolve().parent))
 
 from slowfast import utils
-from slowfast_setup import parse_args, load_dataset, load_model, evaluate_single_sample
+from slowfast_setup import parse_args, load_dataset, load_model, evaluate_single_sample, load_frames_from_info
 
 # pytorch-grad-cam imports
 from pytorch_grad_cam import GradCAMPlusPlus, GradCAM, ScoreCAM
@@ -55,31 +55,6 @@ def denormalize_image(img_norm):
     # img_norm has shape [H,W,3] in normalized space
     img = img_norm * imagenet_std + imagenet_mean
     return np.clip(img, 0, 1)
-
-def load_frames_from_info(info_str, args, verbose=False):
-    """
-    Read the raw RGB frames for a sample.
-    Expects info_str like '...|/path/to/frames/*.png|...
-    Returns a numpy array of shape [T, H, W, 3], values in [0,1].
-    """
-    rel_pattern = info_str.split('|')[1]
-    print(f"[Frames] Loading frames from pattern: {rel_pattern}") if verbose else None
-
-    # Build the full path under features directory
-    root = args.dataset_info['dataset_root']
-    feat_dir = os.path.join(root, 'features',
-                            f"fullFrame-256x256px/{args.mode}")
-    frame_pattern = os.path.join(feat_dir, rel_pattern)
-    if verbose: print(f"[Frames] Glob pattern: {frame_pattern}")
-    paths = sorted(glob.glob(frame_pattern))
-    if verbose: print(f"[Frames] Found {len(paths)} frames")
-    frames = []
-    for i, p in enumerate(paths):
-        img = cv2.imread(p)[:, :, ::-1].astype(np.float32) / 255.0  # BGR->RGB, normalize
-        frames.append(img)
-        if verbose and (i + 1) % 20 == 0:
-            print(f"  → Loaded {i+1}/{len(paths)} frames")
-    return np.stack(frames, axis=0)
 
 def reshape_transform(tensor):
     # 1) If it's a tuple (e.g. (output, hidden)), unwrap
