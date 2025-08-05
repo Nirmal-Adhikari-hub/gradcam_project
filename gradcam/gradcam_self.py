@@ -36,9 +36,14 @@ class CAMWrapper(nn.Module):
         len_x_batch = self.len_x.repeat(B)
         was_training = self.model.training
         self.model.train()
-        with torch.set_grad_enabled(True):
-            out = self.model(x, len_x_batch)
-            seq_logits = out['sequence_logits'][0]
+        with torch.backends.cudnn.flags(enabled=False):
+            # Disable cudnn for reproducibility
+            # This is important for Grad-CAM to work correctly
+            # This is important for Grad-CAM to work correctly
+            # as it relies on the gradients being computed in a specific way.
+            with torch.set_grad_enabled(True):
+                out = self.model(x, len_x_batch)
+                seq_logits = out['sequence_logits'][0]
         self.model.train(was_training)
         return seq_logits
 
@@ -151,6 +156,7 @@ def main():
                       target_layers=[layer],
                       reshape_transform=reshape_transform
                       )
+        cam.target_size = (input_tensor.shape[-1], input_tensor.shape[-2])
         grayscale_cam = cam(input_tensor=input_tensor, targets=None)
         print(f"Grayscale CAM shape for {layer_name}: {grayscale_cam.shape}")  # [B*T, H, W]
         B, T = input_tensor.shape[0], len_x.item() # len_x is a tensor([T])
