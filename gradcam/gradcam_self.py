@@ -169,15 +169,34 @@ def main():
 
         grayscale_cam = cam(input_tensor=input_tensor, targets=None)
         print(f"Grayscale CAM shape for {layer_name}: {grayscale_cam.shape}")  # [B*T, H, W]
-        B, T = input_tensor.shape[0], len_x.item() # len_x is a tensor([T])
-        grayscale_cam = grayscale_cam.reshape(B, T, *grayscale_cam.shape[1:])  # [B, T, H, W]
+        B = input_tensor.shape[0]
+        cam_array = grayscale_cam
+
+        if cam_array.ndim == 3:
+            # single batch case: (T_cam, H, W) -> make it (B, T_cam, H, W)
+            T_cam, H, W = cam_array.shape
+            cam_array = cam_array[None] # shape -> (1, T_cam, H, W)
+        else:
+            # general case: (B*T_cam, H, W)
+            B_T, H, W = cam_array.shape
+            T_cam = B_T // B
+            cam_array = cam_array.reshape(B, T_cam, H, W)
+        print(f"[Reshaped] cam_array shape: {cam_array.shape}")  # [B, T_cam, H, W]
+        grayscale_cam = cam_array
         print(f"[Reshaped] Grayscale CAM: {grayscale_cam.shape}")  # [B, T, H, W]
-        cam_maps_layer = grayscale_cam[0]  # Select batch 0, shape [T, H, W]
+        cam_maps_layer = grayscale_cam[0]  # Select batch 0, shape [T_cam, H, W]
         T_cam = cam_maps_layer.shape[0]
         layer_folder = out_root / layer_name
         layer_folder.mkdir(exist_ok=True)
+
+        # compute the per-layer temporal stride S once, just the T_cam
+        # len_x.item() is the original input length (e.g. 200), T_cam is the number of
+        # CAM maps (e.g.50)
+        S = len_x.item() / T_cam
+        offset = S // 2 # center of each receptive field
         for t in range(T_cam):
-            frame_idx = int(round((t / (T_cam - 1)) * (N - 1)))
+            # map each CAM time-step t back to its "center" input frame
+            frame_idx = min(N - 1, t * S + offset)
             rgb_img = frames[frame_idx]
             if rgb_img.max() > 1:
                 rgb_img = rgb_img.astype(np.float32) / 255
