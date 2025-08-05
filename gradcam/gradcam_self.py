@@ -53,8 +53,8 @@ class CAMWrapper(nn.Module):
 
 def main():
     args = parse_args()
-    # device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    device = 'cpu'
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    # device = 'cpu'
     gloss_dict = np.load(args.dataset_info['dict_path'], allow_pickle=True).item()
 
     feeder = load_dataset(args=args, gloss_dict=gloss_dict)
