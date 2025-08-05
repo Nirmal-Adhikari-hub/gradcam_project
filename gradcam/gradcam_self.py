@@ -196,7 +196,7 @@ def main():
         offset = S // 2 # center of each receptive field
         for t in range(T_cam):
             # map each CAM time-step t back to its "center" input frame
-            frame_idx = min(N - 1, t * S + offset)
+            frame_idx = int(min(N - 1, t * S + offset))
             rgb_img = frames[frame_idx]
             if rgb_img.max() > 1:
                 rgb_img = rgb_img.astype(np.float32) / 255
