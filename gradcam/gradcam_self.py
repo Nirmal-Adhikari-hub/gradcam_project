@@ -35,7 +35,7 @@ class CAMWrapper(nn.Module):
         B = x.size(0)
         len_x_batch = self.len_x.repeat(B)
         was_training = self.model.training
-        self.model.eval()
+        self.model.train()
         with torch.set_grad_enabled(True):
             out = self.model(x, len_x_batch)
             seq_logits = out['sequence_logits'][0]
