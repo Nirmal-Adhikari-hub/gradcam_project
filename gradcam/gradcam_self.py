@@ -7,6 +7,10 @@ import torch.nn as nn
 from pytorch_grad_cam import GradCAM, HiResCAM, ScoreCAM, GradCAMPlusPlus, AblationCAM, XGradCAM, EigenCAM, FullGrad
 from pytorch_grad_cam.utils.model_targets import ClassifierOutputTarget
 from pytorch_grad_cam.utils.image import show_cam_on_image
+from pytorch_grad_cam.base_cam import BaseCAM
+
+
+BaseCAM.get_target_width_height = lambda self, x: (x.size(-1), x.size(-2))  # Fix for Grad-CAM to work with odd-sized inputs    
 
 sys.path.append(str(Path(__file__).resolve().parent))
 
@@ -49,7 +53,8 @@ class CAMWrapper(nn.Module):
 
 def main():
     args = parse_args()
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    # device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    device = 'cpu'
     gloss_dict = np.load(args.dataset_info['dict_path'], allow_pickle=True).item()
 
     feeder = load_dataset(args=args, gloss_dict=gloss_dict)
@@ -158,7 +163,10 @@ def main():
                       )
         # H, W = input_tensor.shape[-2], input_tensor.shape[-1]
         # cam.target_size = (W, H)  # (width, height) — OpenCV uses width first!
-        cam.target_size = None
+        # cam.target_size = None
+
+        print(f"Input tensor shape: {input_tensor.shape}")  # [B, C, T, H, W]
+
         grayscale_cam = cam(input_tensor=input_tensor, targets=None)
         print(f"Grayscale CAM shape for {layer_name}: {grayscale_cam.shape}")  # [B*T, H, W]
         B, T = input_tensor.shape[0], len_x.item() # len_x is a tensor([T])

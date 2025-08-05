@@ -124,10 +124,10 @@ def parse_args():
                         help='Index of the sample in the feeder to evaluate')
     sparser.add_argument('--verbose', action='store_true',
                         help='Print progress messages')
-    sparser.add_argument('--slowfast_ckpt', type=str,
-                        default='/shared/home/xvoice/nirmal/gradcam/checkpoints/slow_fast_phoenix2014_dev_18.01_test_18.28.pt')
     # sparser.add_argument('--slowfast_ckpt', type=str,
-    #                     default='/home/nirmal/SlowFast/GradCAMs/checkpoints/slow_fast_phoenix2014_dev_18.01_test_18.28.pt')
+    #                     default='/shared/home/xvoice/nirmal/gradcam/checkpoints/slow_fast_phoenix2014_dev_18.01_test_18.28.pt')
+    sparser.add_argument('--slowfast_ckpt', type=str,
+                        default='/home/nirmal/SlowFast/GradCAMs/checkpoints/slow_fast_phoenix2014_dev_18.01_test_18.28.pt')
     p = sparser.parse_args()
 
     # p.config = "baseline_iter.yaml"
