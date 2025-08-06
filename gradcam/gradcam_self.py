@@ -245,9 +245,9 @@ def main():
             # layer_folder = out_root / layer_name
             # layer_folder.mkdir(exist_ok=True)
 
-        # compute the per-layer temporal stride S once, just the T_cam
-        # len_x.item() is the original input length (e.g. 200), T_cam is the number of
-        # CAM maps (e.g.50)
+            # compute the per-layer temporal stride S once, just the T_cam
+            # len_x.item() is the original input length (e.g. 200), T_cam is the number of
+            # CAM maps (e.g.50)
             S = len_x.item() / T_cam
             offset = S // 2 # center of each receptive field
             for t in range(T_cam):
@@ -269,7 +269,7 @@ def main():
                 save_path = target_folder / f"frame_{frame_idx:04d}_cam_{t:02d}.png"
                 Image.fromarray(visualization).save(save_path)
 
-                # kill the old graph, free activations
+            # kill the old graph, free activations
             del grayscale_cam
             torch.cuda.empty_cache()
 

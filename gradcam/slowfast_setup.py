@@ -118,9 +118,9 @@ def evaluate_single_sample(model, feeder, args, out_dir: str):
 def parse_args():
     # Parse arguments
     sparser = utils.get_parser()
-    sparser.add_argument('--mode', type=str, default='test',
+    sparser.add_argument('--mode', type=str, default='dev',
                         help='Dataset split to use (train/dev/test)')
-    sparser.add_argument('--index', type=int, default=62,
+    sparser.add_argument('--index', type=int, default=539,
                         help='Index of the sample in the feeder to evaluate')
     sparser.add_argument('--verbose', action='store_true',
                         help='Print progress messages')
@@ -128,7 +128,7 @@ def parse_args():
                         default='/shared/home/xvoice/nirmal/gradcam/checkpoints/slow_fast_phoenix2014_dev_18.01_test_18.28.pt')
     # sparser.add_argument('--slowfast_ckpt', type=str,
     #                     default='/home/nirmal/SlowFast/GradCAMs/checkpoints/slow_fast_phoenix2014_dev_18.01_test_18.28.pt')
-    p = sparser.parse_args()
+    # p = sparser.parse_args()
 
     # p.config = "baseline_iter.yaml"
     if p.config is not None:
