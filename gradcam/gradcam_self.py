@@ -49,6 +49,7 @@ class CAMWrapper(nn.Module):
                 out = self.model(x, len_x_batch)
                 seq_logits = out['sequence_logits'][0]
         self.model.train(was_training)
+        print(f"[CAMWrapper] Output shape: {seq_logits.shape}")  # [B, num_classes]
         return seq_logits
 
 def main():
