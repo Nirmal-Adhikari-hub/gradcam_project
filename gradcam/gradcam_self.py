@@ -45,6 +45,12 @@ def upsample_cam(cam, size):
     return upsampled
 
 
+class ZeroTarget:
+    """A dummy target that returns 0 (no gradient flows through that sample)."""
+    def __call__(self, model_output):
+        return model_output.new_zeros(1, requires_grad=True)
+
+
 class TimeStepTarget:
     def __init__(self, time_index, class_index):
         self.time_index = time_index
@@ -202,8 +208,15 @@ def main():
             gloss = inv_gloss.get(class_id, str(class_id))
             print(f"[GradCAM] layer={layer_name} t_pred={t_pred} gloss={gloss}")
 
-            target = TimeStepTarget(time_index=t_pred, class_index=class_id)
-            grayscale_cam = cam(input_tensor=input_tensor, targets=[target])
+            # build one target per time–step (length = T_pred)
+            targets = []
+            for i in range(len(pred_classes)):
+                if i == t_pred:
+                    targets.append(ClassifierOutputTarget(class_id))  # active sample
+                else:
+                    targets.append(ZeroTarget())                      # silent sample
+
+            grayscale_cam = cam(input_tensor=input_tensor, targets=targets)
 
             print(f"Grayscale CAM shape for {layer_name}: {grayscale_cam.shape}")  # [B*T, H, W]
             B = input_tensor.shape[0]
