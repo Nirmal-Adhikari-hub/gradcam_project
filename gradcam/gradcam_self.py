@@ -51,7 +51,9 @@ class TimeStepTarget:
         self.class_index = class_index
 
     def __call__(self, model_output):
-        # model ouput shape: [T, C]
+        # if we get a [T, 1, C], squeeze out that middle 1
+        if model_output.ndim == 3 and model_output.shape[1] == 1:
+            model_output = model_output.squeeze(1)  # -> [T, C]
         return model_output[self.time_index, self.class_index]
     
 
@@ -131,7 +133,7 @@ def main():
     input_tensor = input_tensor.to(device)
 
     wrapper_model = CAMWrapper(model, len_x.to(device)).to(device)
-    wrapper_model = nn.DataParallel(wrapper_model)  # Use DataParallel if needed
+    # wrapper_model = nn.DataParallel(wrapper_model)  # Use DataParallel if needed
 
     # Get the model outputs to extract per-time-step predictions
     with torch.no_grad():
