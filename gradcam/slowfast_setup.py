@@ -128,7 +128,7 @@ def parse_args():
                         default='/shared/home/xvoice/nirmal/gradcam/checkpoints/slow_fast_phoenix2014_dev_18.01_test_18.28.pt')
     # sparser.add_argument('--slowfast_ckpt', type=str,
     #                     default='/home/nirmal/SlowFast/GradCAMs/checkpoints/slow_fast_phoenix2014_dev_18.01_test_18.28.pt')
-    # p = sparser.parse_args()
+    p = sparser.parse_args()
 
     # p.config = "baseline_iter.yaml"
     if p.config is not None:
