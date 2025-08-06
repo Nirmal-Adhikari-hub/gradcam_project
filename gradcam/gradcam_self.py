@@ -9,6 +9,10 @@ from pytorch_grad_cam.utils.model_targets import ClassifierOutputTarget
 from pytorch_grad_cam.utils.image import show_cam_on_image
 from pytorch_grad_cam.base_cam import BaseCAM
 
+from PIL import Image
+from PIL import ImageDraw
+from pathlib import Path
+
 
 BaseCAM.get_target_width_height = lambda self, x: (x.size(-1), x.size(-2))  # Fix for Grad-CAM to work with odd-sized inputs    
 
@@ -25,6 +29,31 @@ def reshape_transform(tensor):
     B, C, T, H, W = tensor.shape
     tensor = tensor.permute(0, 2, 1, 3, 4)  # [B, T, C, H, W]
     return tensor.reshape(B * T, C, H, W)  # [B*T, C, H, W]
+
+
+# --- CORRECTED SAFE UPSAMPLE ---
+def upsample_cam(cam, size):
+    denom = cam.max() - cam.min()
+    if denom == 0:
+        cam = np.zeros_like(cam, dtype=np.float32)
+    else:
+        cam = (cam - cam.min()) / denom #Normalize to [0,1]
+    cam = (cam * 255).astype(np.uint8)
+    img = Image.fromarray(cam)
+    img = img.resize(size, resample=Image.BILINEAR)
+    upsampled = np.array(img).astype(np.float32) / 255
+    return upsampled
+
+
+class TimeStepTarget:
+    def __init__(self, time_index, class_index):
+        self.time_index = time_index
+        self.class_index = class_index
+
+    def __call__(self, model_output):
+        # model ouput shape: [T, C]
+        return model_output[self.time_index, self.class_index]
+    
 
 class CAMWrapper(nn.Module):
     """
@@ -57,6 +86,7 @@ def main():
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     # device = 'cpu'
     gloss_dict = np.load(args.dataset_info['dict_path'], allow_pickle=True).item()
+    inv_gloss = {v:k for k,v in gloss_dict.items()}
 
     feeder = load_dataset(args=args, gloss_dict=gloss_dict)
     ckpt = args.slowfast_ckpt
@@ -67,6 +97,7 @@ def main():
     out_dir = './slowfast/work_dir/gradcam_eval'
     wer, decoded, info = evaluate_single_sample(model, feeder, args, out_dir)
     print(f"Single-sample WER: {wer:.2f}% | Info: {info}") 
+    video_id = info[0].split('|', 1)[0]
     
     target_layers = [
         model.conv2d.s1.pathway0_stem,
@@ -101,6 +132,12 @@ def main():
 
     wrapper_model = CAMWrapper(model, len_x.to(device)).to(device)
 
+    # Get the model outputs to extract per-time-step predictions
+    with torch.no_grad():
+        logits = wrapper_model(input_tensor) # [T_pred, B=1, num_classes]
+        logits = logits[:, 0] # [T_pred, num_classes]
+        pred_classes = torch.argmax(logits, dim=1).tolist() # List[int], len = T_pred
+
     # cam = GradCAM(
     #     model=wrapper_model,
     #     target_layers=target_layers,
@@ -121,9 +158,7 @@ def main():
 
     N = frames.shape[0]
 
-    from PIL import Image
-    from pathlib import Path
-    out_root = Path('slowfast/work_dir/gradcam_per_layer')
+    out_root = Path('slowfast/work_dir/gradcam_per_layer') / args.mode / video_id
     out_root.mkdir(parents=True, exist_ok=True)
 
     target_layer_names = [
@@ -134,19 +169,6 @@ def main():
             'pathway0_res2',
             'pathway1_res2'
     ]
-
-    # --- CORRECTED SAFE UPSAMPLE ---
-    def upsample_cam(cam, size):
-        denom = cam.max() - cam.min()
-        if denom == 0:
-            cam = np.zeros_like(cam, dtype=np.float32)
-        else:
-            cam = (cam - cam.min()) / denom #Normalize to [0,1]
-        cam = (cam * 255).astype(np.uint8)
-        img = Image.fromarray(cam)
-        img = img.resize(size, resample=Image.BILINEAR)
-        upsampled = np.array(img).astype(np.float32) / 255
-        return upsampled
     
     for layer_idx, (layer, layer_name) in enumerate(zip(target_layers, target_layer_names)):
 
@@ -168,43 +190,65 @@ def main():
 
         print(f"Input tensor shape: {input_tensor.shape}")  # [B, C, T, H, W]
 
-        grayscale_cam = cam(input_tensor=input_tensor, targets=None)
-        print(f"Grayscale CAM shape for {layer_name}: {grayscale_cam.shape}")  # [B*T, H, W]
-        B = input_tensor.shape[0]
-        cam_array = grayscale_cam
+        # grayscale_cam = cam(input_tensor=input_tensor, targets=None)
 
-        if cam_array.ndim == 3:
-            # single batch case: (T_cam, H, W) -> make it (B, T_cam, H, W)
-            T_cam, H, W = cam_array.shape
-            cam_array = cam_array[None] # shape -> (1, T_cam, H, W)
-        else:
-            # general case: (B*T_cam, H, W)
-            B_T, H, W = cam_array.shape
-            T_cam = B_T // B
-            cam_array = cam_array.reshape(B, T_cam, H, W)
-        print(f"[Reshaped] cam_array shape: {cam_array.shape}")  # [B, T_cam, H, W]
-        grayscale_cam = cam_array
-        print(f"[Reshaped] Grayscale CAM: {grayscale_cam.shape}")  # [B, T, H, W]
-        cam_maps_layer = grayscale_cam[0]  # Select batch 0, shape [T_cam, H, W]
-        T_cam = cam_maps_layer.shape[0]
-        layer_folder = out_root / layer_name
-        layer_folder.mkdir(exist_ok=True)
+        for t_pred, class_id in enumerate(pred_classes):
+            gloss = inv_gloss.get(class_id, str(class_id))
+            print(f"[GradCAM] layer={layer_name} t_pred={t_pred} gloss={gloss}")
+
+            target = TimeStepTarget(time_index=t_pred, class_index=class_id)
+            grayscale_cam = cam(input_tensor=input_tensor, targets=[target])
+
+            print(f"Grayscale CAM shape for {layer_name}: {grayscale_cam.shape}")  # [B*T, H, W]
+            B = input_tensor.shape[0]
+            cam_array = grayscale_cam
+
+            if cam_array.ndim == 3:
+                # single batch case: (T_cam, H, W) -> make it (B, T_cam, H, W)
+                T_cam, H, W = cam_array.shape
+                cam_array = cam_array[None] # shape -> (1, T_cam, H, W)
+            else:
+                # general case: (B*T_cam, H, W)
+                B_T, H, W = cam_array.shape
+                T_cam = B_T // B
+                cam_array = cam_array.reshape(B, T_cam, H, W)
+            print(f"[Reshaped] cam_array shape: {cam_array.shape}")  # [B, T_cam, H, W]
+            grayscale_cam = cam_array
+            print(f"[Reshaped] Grayscale CAM: {grayscale_cam.shape}")  # [B, T, H, W]
+            cam_maps_layer = grayscale_cam[0]  # Select batch 0, shape [T_cam, H, W]
+            T_cam = cam_maps_layer.shape[0]
+
+            # folder structure
+            target_folder = out_root / layer_name / f"time_{t_pred:02d}"
+            target_folder.mkdir(parents=True, exist_ok=True)
+
+
+            # layer_folder = out_root / layer_name
+            # layer_folder.mkdir(exist_ok=True)
 
         # compute the per-layer temporal stride S once, just the T_cam
         # len_x.item() is the original input length (e.g. 200), T_cam is the number of
         # CAM maps (e.g.50)
-        S = len_x.item() / T_cam
-        offset = S // 2 # center of each receptive field
-        for t in range(T_cam):
-            # map each CAM time-step t back to its "center" input frame
-            frame_idx = int(min(N - 1, t * S + offset))
-            rgb_img = frames[frame_idx]
-            if rgb_img.max() > 1:
-                rgb_img = rgb_img.astype(np.float32) / 255
-            cam_img = upsample_cam(cam_maps_layer[t], size=(rgb_img.shape[0], rgb_img.shape[1]))
-            visualization = show_cam_on_image(rgb_img, cam_img, use_rgb=True)
-            save_path = layer_folder / f"frame_{frame_idx}_cam_{t}.png"
-            Image.fromarray(visualization).save(save_path)
+            S = len_x.item() / T_cam
+            offset = S // 2 # center of each receptive field
+            for t in range(T_cam):
+                # map each CAM time-step t back to its "center" input frame
+                frame_idx = int(min(N - 1, t * S + offset))
+                rgb_img = frames[frame_idx]
+                if rgb_img.max() > 1:
+                    rgb_img = rgb_img.astype(np.float32) / 255
+                cam_img = upsample_cam(cam_maps_layer[t], size=(rgb_img.shape[0], rgb_img.shape[1]))
+                visualization = show_cam_on_image(rgb_img, cam_img, use_rgb=True)
+
+                # Overlay the gloss text
+                pil = Image.fromarray(visualization)
+                draw = ImageDraw.Draw(pil)
+                text = f"{gloss}"
+                draw.text((5,5), text, fill=(255,255,255))
+                visualization = np.array(pil)
+
+                save_path = target_folder / f"frame_{frame_idx:04d}_cam_{t:02d}.png"
+                Image.fromarray(visualization).save(save_path)
 
     for h in forward_handles:
         h.remove()
