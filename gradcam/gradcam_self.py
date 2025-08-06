@@ -131,6 +131,7 @@ def main():
     input_tensor = input_tensor.to(device)
 
     wrapper_model = CAMWrapper(model, len_x.to(device)).to(device)
+    wrapper_model = nn.DataParallel(wrapper_model)  # Use DataParallel if needed
 
     # Get the model outputs to extract per-time-step predictions
     with torch.no_grad():
@@ -249,6 +250,10 @@ def main():
 
                 save_path = target_folder / f"frame_{frame_idx:04d}_cam_{t:02d}.png"
                 Image.fromarray(visualization).save(save_path)
+
+                # kill the old graph, free activations
+                del grayscale_cam
+                torch.cuda.empty_cache()
 
     for h in forward_handles:
         h.remove()
