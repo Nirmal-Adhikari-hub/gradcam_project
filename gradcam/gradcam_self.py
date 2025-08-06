@@ -51,9 +51,7 @@ class TimeStepTarget:
         self.class_index = class_index
 
     def __call__(self, model_output):
-        # if we get a [T, 1, C], squeeze out that middle 1
-        if model_output.ndim == 3 and model_output.shape[1] == 1:
-            model_output = model_output.squeeze(1)  # -> [T, C]
+        # model ouput shape: [T, C]
         return model_output[self.time_index, self.class_index]
     
 
@@ -79,6 +77,10 @@ class CAMWrapper(nn.Module):
             with torch.set_grad_enabled(True):
                 out = self.model(x, len_x_batch)
                 seq_logits = out['sequence_logits'][0]
+                # --- add these two lines ---
+                if seq_logits.ndim == 3 and seq_logits.shape[1] == 1:
+                    seq_logits = seq_logits.squeeze(1)  # now [T_pred, num_classes]
+                # -----------------------------
         self.model.train(was_training)
         print(f"[CAMWrapper] Output shape: {seq_logits.shape}")  # [B, num_classes]
         return seq_logits
