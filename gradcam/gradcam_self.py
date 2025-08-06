@@ -139,9 +139,8 @@ def main():
 
     # Get the model outputs to extract per-time-step predictions
     with torch.no_grad():
-        logits = wrapper_model(input_tensor) # [T_pred, B=1, num_classes]
-        logits = logits[:, 0] # [T_pred, num_classes]
-        pred_classes = torch.argmax(logits, dim=1).tolist() # List[int], len = T_pred
+        logits = wrapper_model(input_tensor)         # [T_pred,  num_classes]
+        pred_classes = torch.argmax(logits, dim=-1).tolist()
 
     # cam = GradCAM(
     #     model=wrapper_model,
