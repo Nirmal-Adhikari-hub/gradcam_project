@@ -194,6 +194,8 @@ def main():
         # grayscale_cam = cam(input_tensor=input_tensor, targets=None)
 
         for t_pred, class_id in enumerate(pred_classes):
+            if t_pred % 5 != 0:
+                continue
             gloss = inv_gloss.get(class_id, str(class_id))
             print(f"[GradCAM] layer={layer_name} t_pred={t_pred} gloss={gloss}")
 
@@ -252,8 +254,8 @@ def main():
                 Image.fromarray(visualization).save(save_path)
 
                 # kill the old graph, free activations
-                del grayscale_cam
-                torch.cuda.empty_cache()
+            del grayscale_cam
+            torch.cuda.empty_cache()
 
     for h in forward_handles:
         h.remove()
