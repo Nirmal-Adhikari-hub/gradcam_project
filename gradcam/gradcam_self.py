@@ -276,7 +276,7 @@ def main():
         ##########################################################################
 
         pred_classes = -1
-        for t_pred, class_id in enumerate(pred_classes):
+        for t_pred, class_id in enumerate([pred_classes]):
             if t_pred % 20 != 0:
                 continue
             gloss = inv_gloss.get(class_id, str(class_id))
