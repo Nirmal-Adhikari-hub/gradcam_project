@@ -312,7 +312,7 @@ def main():
             T_cam = cam_maps_layer.shape[0]
 
             # folder structure
-            target_folder = out_root / layer_name / pred_classes / f"time_{t_pred:02d}"
+            target_folder = out_root / layer_name / f"class_{pred_classes}" / f"time_{t_pred:02d}"
             target_folder.mkdir(parents=True, exist_ok=True)
 
 
