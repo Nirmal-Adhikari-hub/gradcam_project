@@ -120,7 +120,7 @@ def parse_args():
     sparser = utils.get_parser()
     sparser.add_argument('--mode', type=str, default='test',
                         help='Dataset split to use (train/dev/test)')
-    sparser.add_argument('--index', type=int, default=2,
+    sparser.add_argument('--index', type=int, default=62,
                         help='Index of the sample in the feeder to evaluate')
     sparser.add_argument('--verbose', action='store_true',
                         help='Print progress messages')
