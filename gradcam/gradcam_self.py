@@ -284,7 +284,7 @@ def main():
 
             # build one target per time–step (length = T_pred)
             targets = []
-            for i in range(len(pred_classes)):
+            for i in range(len([pred_classes])):
                 if i == t_pred:
                     targets.append(ClassifierOutputTarget(class_id))  # active sample
                 else:
