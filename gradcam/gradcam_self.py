@@ -202,8 +202,82 @@ def main():
 
         # grayscale_cam = cam(input_tensor=input_tensor, targets=None)
 
+        # for t_pred, class_id in enumerate(pred_classes):
+            # if t_pred % 5 != 0:
+            #     continue
+            # gloss = inv_gloss.get(class_id, str(class_id))
+            # print(f"[GradCAM] layer={layer_name} t_pred={t_pred} gloss={gloss}")
+
+            # # build one target per time–step (length = T_pred)
+            # targets = []
+            # for i in range(len(pred_classes)):
+            #     if i == t_pred:
+            #         targets.append(ClassifierOutputTarget(class_id))  # active sample
+            #     else:
+            #         targets.append(ZeroTarget())                      # silent sample
+
+            # grayscale_cam = cam(input_tensor=input_tensor, targets=targets)
+
+            # print(f"Grayscale CAM shape for {layer_name}: {grayscale_cam.shape}")  # [B*T, H, W]
+            # B = input_tensor.shape[0]
+            # cam_array = grayscale_cam
+
+            # if cam_array.ndim == 3:
+            #     # single batch case: (T_cam, H, W) -> make it (B, T_cam, H, W)
+            #     T_cam, H, W = cam_array.shape
+            #     cam_array = cam_array[None] # shape -> (1, T_cam, H, W)
+            # else:
+            #     # general case: (B*T_cam, H, W)
+            #     B_T, H, W = cam_array.shape
+            #     T_cam = B_T // B
+            #     cam_array = cam_array.reshape(B, T_cam, H, W)
+            # print(f"[Reshaped] cam_array shape: {cam_array.shape}")  # [B, T_cam, H, W]
+            # grayscale_cam = cam_array
+            # print(f"[Reshaped] Grayscale CAM: {grayscale_cam.shape}")  # [B, T, H, W]
+            # cam_maps_layer = grayscale_cam[0]  # Select batch 0, shape [T_cam, H, W]
+            # T_cam = cam_maps_layer.shape[0]
+
+            # # folder structure
+            # target_folder = out_root / layer_name / f"time_{t_pred:02d}"
+            # target_folder.mkdir(parents=True, exist_ok=True)
+
+
+            # # layer_folder = out_root / layer_name
+            # # layer_folder.mkdir(exist_ok=True)
+
+            # # compute the per-layer temporal stride S once, just the T_cam
+            # # len_x.item() is the original input length (e.g. 200), T_cam is the number of
+            # # CAM maps (e.g.50)
+            # S = len_x.item() / T_cam
+            # offset = S // 2 # center of each receptive field
+            # for t in range(T_cam):
+            #     # map each CAM time-step t back to its "center" input frame
+            #     frame_idx = int(min(N - 1, t * S + offset))
+            #     rgb_img = frames[frame_idx]
+            #     if rgb_img.max() > 1:
+            #         rgb_img = rgb_img.astype(np.float32) / 255
+            #     cam_img = upsample_cam(cam_maps_layer[t], size=(rgb_img.shape[0], rgb_img.shape[1]))
+            #     visualization = show_cam_on_image(rgb_img, cam_img, use_rgb=True)
+
+            #     # Overlay the gloss text
+            #     pil = Image.fromarray(visualization)
+            #     draw = ImageDraw.Draw(pil)
+            #     text = f"{gloss}"
+            #     draw.text((5,5), text, fill=(255,255,255))
+            #     visualization = np.array(pil)
+
+            #     save_path = target_folder / f"frame_{frame_idx:04d}_cam_{t:02d}.png"
+            #     Image.fromarray(visualization).save(save_path)
+
+            # # kill the old graph, free activations
+            # del grayscale_cam
+            # torch.cuda.empty_cache()
+
+        ##########################################################################
+
+        pred_classes = -1
         for t_pred, class_id in enumerate(pred_classes):
-            if t_pred % 5 != 0:
+            if t_pred % 20 != 0:
                 continue
             gloss = inv_gloss.get(class_id, str(class_id))
             print(f"[GradCAM] layer={layer_name} t_pred={t_pred} gloss={gloss}")
@@ -238,7 +312,7 @@ def main():
             T_cam = cam_maps_layer.shape[0]
 
             # folder structure
-            target_folder = out_root / layer_name / f"time_{t_pred:02d}"
+            target_folder = out_root / layer_name / pred_classes / f"time_{t_pred:02d}"
             target_folder.mkdir(parents=True, exist_ok=True)
 
 
@@ -272,6 +346,9 @@ def main():
             # kill the old graph, free activations
             del grayscale_cam
             torch.cuda.empty_cache()
+
+        ##########################################################################
+
 
     for h in forward_handles:
         h.remove()
